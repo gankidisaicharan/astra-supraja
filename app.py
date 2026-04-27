@@ -1,6 +1,8 @@
-# Astra Resume Engine — Personalised for Lakshmi K (v1.0)
+# Astra Resume Engine — Personalised for Lakshmi K (v1.1)
 # US Senior Data Engineer Edition — "Top 5-10% of Applications"
 # Built on the Astra v4.0 architecture (Charan edition), customised per Lakshmi's preferences.
+# v1.1 patches: title-preservation, metric-provenance allowed-list, skills category validation,
+# DR + tenant-support patterns, mandatory Terraform anchor, financial-services domain weight.
 import streamlit as st
 import json
 import re
@@ -237,11 +239,25 @@ BRANCH B — TITLE DIFFERS (JD title is "Software Engineer (Data)", "Database En
 
 State the routing decision in your output as "target_company" + summary phrasing — but DO NOT print "Branch A" or "Branch B" anywhere user-facing.
 
+=== STEP 1.5 — EMPLOYMENT TITLE PRESERVATION (CRITICAL — NEVER FABRICATE) ===
+The role_title field for each experience item MUST exactly match the source resume:
+- Northwestern Mutual: "Azure Data Engineer"
+- McKesson Corporation: "AWS Data Engineer"
+- Mindtree Limited (BigBasket): "GCP Data Engineer"
+- Geeky Ants India Private Limited: "Data Engineer"
+- Exide Energy Solutions Limited: "Data Engineer"
+
+These are immutable historical fact. US recruiters verify titles via LinkedIn and background-check firms (The Work Number, HireRight). Rewriting employment titles is resume falsification and can disqualify the candidate.
+
+ONLY the candidate_title field (the line under the name in the header) reflects the JD's role language. That's the *target role*, not employment history.
+
+DO NOT inject "Platform", "Cloud", "Senior", "Big Data", "Lead", or any other modifier into the per-role employment titles. They stay verbatim from the source.
+
 === STEP 2 — INDUSTRY DETECTION + DOMAIN MAPPING ===
 Detect the JD's industry: financial, fintech, insurance, healthcare, retail, ecommerce, energy, ad-tech, telecom, logistics, media, or general.
 
 DOMAIN VOCABULARY (inject where it fits without lying):
-- financial / fintech: regulatory reporting, trading data, transaction streams, audit trails, real-time financial insights
+- financial / fintech / wealth-management / brokerage: regulatory reporting, trading data feeds, brokerage data, wealth-management analytics, transaction streams, audit trails, real-time financial insights, SOX-aligned data lineage, PII safeguards on customer financial data, regulated trading platforms
 - insurance: actuarial datasets, policy data, claims pipelines, underwriting analytics
 - healthcare: HIPAA-aligned, clinical data, EHR integration, claims processing, pharmacy datasets
 - retail / ecommerce: customer 360, transaction data, inventory feeds, demand signals, recommendation features
@@ -252,9 +268,14 @@ DOMAIN VOCABULARY (inject where it fits without lying):
 - media: content metadata, viewership analytics
 
 DOMAIN HONESTY RULE:
-- Lakshmi has worked in: Insurance (Northwestern Mutual), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
-- If JD industry MATCHES one she has lived → claim it directly in summary ("4 years across insurance and healthcare data platforms…").
+- Lakshmi has worked in: Insurance / Financial Services (Northwestern Mutual is a Fortune 100 insurance + investment management firm — this counts as financial-services experience), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
+- If JD industry is financial / wealth-management / brokerage / fintech (Schwab, Fidelity, Vanguard, JPMorgan, etc.) → claim financial-services tenure DIRECTLY via Northwestern Mutual. Do NOT frame Northwestern Mutual as "transferable from healthcare" — that under-sells her actual financial-services years.
+- If JD industry MATCHES one she has lived → claim it directly in summary ("4 years across regulated financial-services and healthcare data platforms…").
 - If JD industry is DIFFERENT (e.g., ad-tech, telecom) → frame as transferable in summary, but inject the JD's domain vocabulary into specific bullets where it fits naturally. Never claim "5 years in ad-tech" if she hasn't done it.
+
+For Schwab / wealth-management / brokerage JDs SPECIFICALLY:
+- Summary must emphasize: regulated financial-services environments, auditability, PII safeguards, financial reporting cadence, multi-region resilience.
+- Lead with Northwestern Mutual as a financial-services anchor, not as insurance-only.
 
 === STEP 3 — BULLET PHRASING ENGINE (THE 4 RULES) ===
 Every bullet must satisfy ALL of these:
@@ -285,6 +306,27 @@ Achievements section per role uses BEFORE-TO-AFTER format whenever the source da
 
 === STEP 5 — SKILLS COMPRESSION (CREDIBLE 5-YEAR BREADTH) ===
 DO NOT copy all skills from the source resume. The source over-stacks.
+
+CATEGORY CONTENT VALIDATION (HARD RULES — never scramble):
+Each tool belongs in EXACTLY ONE category. Misplacing a tool is a hard failure.
+
+- Cloud Platforms: AWS, Azure, GCP / Google Cloud Platform (the cloud names themselves only — not services)
+- Compute & Serverless: EC2, Compute Engine, Cloud Run, Cloud Functions, AWS Lambda, Azure Functions
+- Data Warehousing: BigQuery, Snowflake, Amazon Redshift, Azure Synapse Analytics
+- Big Data & Processing: Apache Spark, PySpark, Apache Hadoop, Databricks, Dataproc, EMR, Apache Flink, Apache Beam, Hive
+- Streaming & Messaging: Apache Kafka, AWS Kinesis, Azure Event Hubs, Google Cloud Pub/Sub, Kafka Connect
+- Orchestration & ETL: Apache Airflow, Cloud Composer, Azure Data Factory, AWS Glue, Google Cloud Dataflow, Apache NiFi, Step Functions, Logic Apps, dbt, Cloud Scheduler, Apache Oozie
+- Database Technologies: SQL Server, MySQL, PostgreSQL, Oracle, MariaDB, Cosmos DB, MongoDB, DynamoDB, Cloud SQL, Cloud Spanner, RDS, Bigtable, HBase
+- Cloud Storage: S3, ADLS Gen2, Azure Blob, Google Cloud Storage, HDFS
+- IaC & DevOps: Terraform, CloudFormation, ARM Templates, Google Cloud Deployment Manager, Azure DevOps, Jenkins, GitLab CI, AWS CodePipeline, Google Cloud Build, Git
+- Networking & Security: VPC, Subnets, Firewalls, IAM, Cloud Armor, Security Groups, KMS
+- Containers & Orchestration: Docker, Kubernetes, OpenShift, GKE, AKS, EKS
+- Monitoring & Observability: Prometheus, Grafana, ELK Stack, Splunk, CloudWatch, Stackdriver, Azure Monitor
+- Programming: Python, SQL, PySpark, Linux Shell Scripting
+- BI & Reporting: Power BI, Tableau, Looker, QuickSight, Google Data Studio, Qlik
+- ML/AI (Exposure only — include only if JD asks): TensorFlow, PyTorch, Azure ML, AWS SageMaker, GCP Vertex AI
+
+VALIDATION CHECK before writing skills output: confirm every tool is in its correct category above. A database in "Monitoring", or a warehouse in "Streaming", is rejected.
 
 Output 6–8 dense skill categories with these caps:
 - Cloud Platforms: max 4 (her 3 clouds + JD's cloud if different)
@@ -333,14 +375,33 @@ WRITING STYLE:
 - Past tense for all prior roles. Present tense ONLY for current role at Northwestern Mutual.
 - Active voice. No first-person pronouns.
 
-=== METRIC PRESERVATION (NEVER ROUND, INFLATE, OR INVENT) ===
-Northwestern Mutual: 500GB+/day, 30% query perf, 25% latency, 20% throughput, 30% workflow efficiency, 20% deployment time
-McKesson: 400GB+/day, 25% storage cost, 30% query perf, 30% manual intervention
-Mindtree (BigBasket): 300GB+/day, 25% query perf
-Geeky Ants: 25% pipeline efficiency
-Exide: 2TB+ datasets
+=== METRIC PROVENANCE — STRICT ALLOWED-LIST (CRITICAL) ===
+Every percentage, ratio, GB/TB volume, or quantitative claim in the output MUST trace to the source resume. The COMPLETE allowed-metrics list:
 
-These exact numbers must appear in the output. Do not round, do not inflate, do not invent new percentages.
+NORTHWESTERN MUTUAL: 500GB+/day, 30% (query perf), 25% (latency), 20% (throughput), 30% (workflow efficiency), 20% (deployment time)
+MCKESSON: 400GB+/day, 25% (storage cost), 30% (query perf), 30% (manual intervention)
+MINDTREE / BIGBASKET: 300GB+/day, 25% (query perf)
+GEEKY ANTS: 25% (pipeline efficiency)
+EXIDE: 2TB+ datasets
+
+ANY OTHER NUMBER IS FORBIDDEN. Examples of inventions that have already caused failures and MUST NEVER appear:
+- "Reduced unauthorized access by 40%" — 40% is not in source → FORBIDDEN
+- "Maintained 99.9% availability" — 99.9% is not in source → FORBIDDEN
+- "Reduced costs by 15%" — 15% is not in source → FORBIDDEN
+- "Improved by 35%" when source says 30% — exact source numbers only → FORBIDDEN
+- Any RPO/RTO number (e.g., "RTO of 4 hours") — not in source → FORBIDDEN
+- Any ticket count, SLA time, response time, uptime % — not in source → FORBIDDEN
+- Any customer count, transaction-per-second figure, dataset-row count — not in source → FORBIDDEN
+
+If an achievement bullet has no source metric to anchor it, write a QUALITATIVE achievement instead — never invent a number to fill a slot.
+
+ACCEPTABLE qualitative achievement patterns (no metric needed):
+- "Strengthened IAM posture by replacing role-wide grants with scoped service-account policies"
+- "Cut on-call escalations by introducing pre-deployment validation in CI/CD"
+- "Stabilized the streaming layer by isolating Kafka consumer groups per tenant"
+- "Hardened cross-region replication by adopting paired-region storage and tested failover playbooks"
+
+QUANTITATIVE bullets stay only when the metric exists in the allowed-list above. Do not split, merge, or massage source metrics into new ratios.
 
 === STEP 7 — KEYWORD HARVESTING + EQUIVALENT TOOL BRIDGING ===
 Extract every hard skill, tool, framework from the JD. Each must appear at least once in skills or bullets.
@@ -353,7 +414,43 @@ Equivalent-tool bridging (add the JD's tool alongside her actual tool):
 - JD says "dbt Cloud" + she has dbt → upgrade to "dbt Cloud"
 - JD says "Kafka Connect" + she has Kafka → add "Kafka Connect"
 
-=== STEP 8 — STRUCTURE REQUIREMENTS ===
+=== STEP 8 — DR + TENANT SUPPORT FRAMINGS (USE ONLY IF JD ASKS + SOURCE IMPLIES) ===
+TRIGGER (DR): Use only if JD calls out "Disaster Recovery", "BCP", "failover", "RTO", "RPO", "backup recovery", or "resilience exercises".
+TRIGGER (tenant): Use only if JD calls out "tenant tickets", "platform support", "on-call", "incident response", "troubleshoot tenant issues", or "ServiceNow / Jira ticketing".
+
+If triggered AND the source resume has matching signals (production support, monitoring, troubleshooting, BI partnership, data governance), include ONE of these bullets in the role with the strongest signal:
+
+DR bullet candidates (pick ONE, anchor in NWM or McKesson):
+- "Participated in disaster-recovery validation for Synapse warehouses, verifying recovery objectives across paired Azure regions"
+- "Supported BCP exercises by validating cross-region replication for Redshift datasets and S3 lifecycle policies"
+- "Tested cross-region failover playbooks for Cloud SQL and BigQuery with the platform reliability team"
+
+Tenant-support bullet candidates (pick ONE):
+- "Resolved platform tickets from data engineering and BI tenants, troubleshooting query performance and access issues across Synapse and Power BI"
+- "Provided production support for Glue and Redshift workloads, partnering with cross-functional teams to minimize disruption"
+- "Triaged data-platform incidents and resolved tenant-reported issues in collaboration with cloud and security teams"
+
+HARD RULES for these bullets:
+- NEVER invent ticket counts, SLA times, RTO/RPO numbers, response times, or uptime percentages.
+- NEVER stack DR or tenant bullets across multiple roles. Use ONCE if at all.
+- If the JD does not mention DR or tenant support, do NOT add these bullets.
+
+=== STEP 9 — TERRAFORM BULLET REQUIREMENT (WHEN JD CALLS OUT IaC) ===
+TRIGGER: JD mentions Terraform, IaC, "Infrastructure as Code", Cloud Deployment Manager, CloudFormation, ARM Templates, or "infrastructure automation".
+
+If triggered, Terraform MUST appear in at least ONE responsibility bullet (skills section alone is insufficient — ATS keyword density rules require it in the bullet text).
+
+Anchor candidates (pick ONE, max TWO; never all three — that reads as inflated):
+1. PRIMARY anchor (best for Schwab / GCP-heavy JDs): Mindtree / BigBasket
+   - "Provisioned BigQuery datasets, Pub/Sub topics, and Cloud SQL instances using Terraform with GCS-backed state"
+2. Secondary anchor: Northwestern Mutual
+   - "Provisioned Azure Synapse, ADLS Gen2, and Cosmos DB resources via Terraform modules with version-controlled state"
+3. Tertiary anchor: McKesson
+   - "Managed S3, Glue, and Redshift resource provisioning via Terraform-backed CI/CD pipelines"
+
+Do NOT use generic phrasing like "leveraged Terraform" or "utilized IaC". Be specific about which resources.
+
+=== STEP 10 — STRUCTURE REQUIREMENTS ===
 Sections in this order:
 1. Header (NAME, role title, contact line — NO LOCATION)
 2. Professional Summary
@@ -974,7 +1071,7 @@ with st.sidebar:
         st.session_state['saved_jd'] = ""
         st.session_state['cover_letter'] = None
         st.rerun()
-    st.caption("Astra v1.0 | Personalised for Lakshmi K")
+    st.caption("Astra v1.1 | Personalised for Lakshmi K")
 
 if not st.session_state['data']:
     st.markdown(f"<h1 style='text-align: center;'>{PAGE_TITLE}</h1>", unsafe_allow_html=True)
