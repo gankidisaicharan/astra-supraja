@@ -1,10 +1,8 @@
-# Astra Resume Engine — Personalised for Lakshmi K (v1.2)
+# Astra Resume Engine — Personalised for Lakshmi K (v1.3)
 # US Senior Data Engineer Edition — "Top 5-10% of Applications"
 # Built on the Astra v4.0 architecture (Charan edition), customised per Lakshmi's preferences.
-# v1.2 ports from Charan's Astra:
-#   - Skills expansion mechanism (additive, trigger-based) replaces compression
-#   - Tighter holistic prompt structure (collapsed 10 steps into single flowing rules)
-#   - DOMAIN HONESTY promoted to the #1 rule at the top of the prompt
+# v1.3 changes: Summary engine rebuilt — 5 sentences, exact JD title opener,
+# banned corporate closers, NO company name in summary, Charan-style flow.
 import streamlit as st
 import json
 import re
@@ -332,13 +330,65 @@ Extract every hard skill, tool, framework from the JD. Each must appear at least
 
 Tools with no source equivalent (React, Vue, Angular, .NET, Java backend, C/C++, niche CRM/ERP) are NOT added. Domain Honesty Rule above applies.
 
-=== SUMMARY (4 sentences, never generic) ===
-1. Unique opener (NOT "Data Engineer with 5+ years…"). Lead with a specific capability or scale fact.
-2. Multi-cloud differentiator (AWS + Azure + GCP) plus technical depth (Spark/Kafka/Airflow at scale, warehousing, streaming).
-3. Domain bridge — claim the industry directly if she has it; frame as transferable if she doesn't.
-4. JD hook — name the target company and reflect their stated stack/problem.
+=== SUMMARY (5 sentences — substantive professional profile, not a brochure) ===
+This is the showpiece of the resume. A recruiter's eye lands here in the first 6 seconds. It must read like a senior engineer talking, not a marketing block. NEVER mention the target company by name anywhere in the summary — name-dropping reads as desperate template-filling. The summary earns the call by demonstrating depth, not by stating the obvious.
 
-BANNED summary openers: "Highly motivated", "Results-driven", "Passionate", "Dedicated professional", "Detail-oriented", "Seasoned", "Dynamic professional", "Innovative thinker", "Experienced professional".
+Sentence 1 — IDENTITY ANCHOR (exact JD title + years + multi-cloud + scale fact):
+Open with the EXACT JD role title + 5+ years + multi-cloud foundation + a concrete scale fact. Pattern: "[JD title] with 5+ years building production data platforms across AWS, Azure, and GCP, currently moving 500GB/day in regulated financial services."
+- Good: "Cloud Data Platform Engineer with 5+ years building production data platforms across AWS, Azure, and GCP, currently moving 500GB/day in regulated financial services."
+- Good: "Database Engineer with 5+ years across SQL Server, PostgreSQL, BigQuery, and Cloud SQL, currently optimizing 500GB/day workloads in regulated financial environments."
+- Bad: "Highly motivated Data Engineer with 5+ years…"
+- Bad: "Senior Data Engineer who has shipped production data platforms…" (avoids JD title)
+
+Sentence 2 — TECHNICAL DEPTH (specific tools and patterns at production scale):
+Name the specific technologies and patterns she actually uses at scale. Reflect the JD's stack where it overlaps with her real experience. This is where she proves she's not a generalist.
+- Good: "Deep production work in PySpark, Snowflake, and Airflow at billion-row scale, with hands-on Terraform-managed infrastructure across the three clouds."
+- Good: "Production fluency in Azure Synapse, Amazon Redshift, and BigQuery, with metadata-driven ELT pipelines orchestrated through ADF, Glue, and Cloud Composer."
+- Bad: "Specialized in cutting-edge data engineering practices and innovative cloud solutions." (vague brochure-speak)
+
+Sentence 3 — DOMAIN STORY (claim if lived, transfer if not, never inflate):
+State the industries she has actually worked in, framed correctly per the Domain Honesty rule. Match the JD's industry directly if she has it; frame as transferable cross-industry experience if she doesn't. Never claim industry tenure she lacks.
+- Good (matched financial JD): "Direct production experience in regulated financial services and healthcare data platforms, including auditability, PII safeguards, and SOX-aligned data lineage."
+- Good (matched healthcare JD): "Direct healthcare-data experience at McKesson with HIPAA-aligned clinical pipelines, complemented by financial-services data work at Northwestern Mutual."
+- Good (different industry, e.g., ad-tech): "Cross-industry production background spanning financial services, healthcare, and retail, with transferable expertise in high-volume streaming and dimensional warehousing."
+- Bad: "Passionate about leveraging data for business outcomes." (banned phrasing)
+
+Sentence 4 — SPECIALIZED STRENGTH (the engineering edge that makes her output reliable):
+Highlight ONE concrete strength that goes beyond keyword stuffing — the thing that makes her engineering work stick. Choose the angle that best fits the JD: governance/lineage, data quality, IaC discipline, real-time/streaming maturity, Lakehouse/Delta architecture, cost optimization, dimensional modeling, or DR/resilience. Be specific.
+- Good (governance JD): "Engineering discipline rooted in metadata-driven pipelines, schema-validated ingestion, and version-controlled Terraform deployments for repeatable infrastructure."
+- Good (real-time JD): "Streaming maturity from Event Hubs and Kinesis to Pub/Sub, with sub-minute latency patterns and idempotent retry logic baked into every pipeline."
+- Good (Lakehouse JD): "Lakehouse-native delivery on Delta Lake with Bronze-Silver-Gold layering, ACID-compliant transformations, and Databricks Workflows for orchestration."
+- Bad: "Driven to deliver scalable, robust, and innovative solutions." (rule-of-three + banned vocab)
+
+Sentence 5 — JD-STACK FIT (close on the JD's stated stack/problem, NOT the company name):
+Close by reflecting the JD's own technical language — its stack, its problem, its delivery model. NEVER name the company. Use a flat positional verb (uses, applies, brings, fits, transfers) or just state the parallel directly.
+- Good: "The same multi-cloud foundation and Snowflake-on-AWS expertise transfer directly to a long-term project-delivery model with onshore/offshore engagement."
+- Good: "This combination of GCP-native services, IaC discipline, and CDW operations fits a self-service Google Cloud analytics ecosystem at enterprise scale."
+- Good: "The healthcare and clinical-data background applies directly to building and growing a multi-year medical data registry platform."
+- Bad: "Aims to support [Company] in their data transformation journey." (banned closer + company name)
+- Bad: "Ready to lead [Company] client workstreams." (banned closer + company name)
+- Bad: "Excited to drive technical innovation at [Company]." (banned closer + company name)
+
+BANNED summary OPENERS (sentence 1): "Highly motivated", "Results-driven", "Passionate", "Dedicated professional", "Detail-oriented", "Seasoned", "Dynamic professional", "Innovative thinker", "Experienced professional", "Senior Data Engineer who has shipped" (avoids JD title — use the JD title directly).
+
+BANNED summary CLOSERS (sentence 5): "Aims to / Aiming to", "Ready to", "Seeking to", "Eager to", "Looking to", "Excited to", "Driven to", "Poised to", "Hoping to", "Committed to". These create the corporate brochure feel and mark the resume as AI-template.
+
+BANNED summary CONTENT (anywhere in summary):
+- The target company's name (NEVER use it — talk about the work, not the brand)
+- Phrases like "at [Company]", "for [Company]", "[Company] client", "[Company]'s [problem]"
+- "transformation journey", "digital transformation", "innovation journey"
+- "drive value", "drive outcomes", "drive impact", "drive results", "drive innovation"
+- "make a difference", "contribute to success"
+- Three-adjective stacks ("scalable, reliable, and efficient")
+
+HARD RULES:
+- Exactly 5 sentences. Not 4. Not 6. Five.
+- Sentence 1 MUST contain the JD's exact role title (or closest credible variant if the JD title is unusual).
+- Sentence 1 MUST contain "AWS, Azure, and GCP" (or "all three major clouds" / "across the three clouds" for variety) — multi-cloud is her core differentiator.
+- Sentence 1 MUST contain a concrete scale fact (500GB/day OR billion-row OR 5+ years OR similar).
+- The target company name MUST NOT appear anywhere in the summary.
+- No sentence may start with a banned closer verb ("Aims to / Ready to / Seeking to / Eager to / Looking to / Excited to / Driven to / Poised to / Hoping to / Committed to").
+- Each sentence does ONE job per the structure above. Do not blur sentences together.
 
 === SKILLS ===
 Output 6–8 skill categories. List the tools she actually uses (and credible JD-equivalents per the bridging rule above). Place JD-mentioned tools FIRST in each category. Do NOT manually expand to every related tool — a post-process expansion step handles that automatically. Just list what's in her source plus credible JD-bridges.
@@ -507,7 +557,7 @@ class ResumeSchema(BaseModel):
     candidate_name: str = Field(description="Always: Lakshmi K")
     candidate_title: str = Field(description="Role title tailored to JD; default 'Senior Data Engineer'")
     contact_info: str = Field(description="Always: +1 (469) 723-2320 | lakshmik3272@gmail.com | linkedin.com/in/lakshmi-k-19aa79330")
-    summary: str = Field(description="4-sentence summary; unique opener, multi-cloud differentiator, domain bridge, JD hook")
+    summary: str = Field(description="EXACTLY 3 sentences. S1: JD title + 5+ years + multi-cloud anchor. S2: technical depth + domain bridge. S3: target company named, JD-stack/problem hook folded naturally — NEVER opens with 'Aims to/Ready to/Seeking to/Eager to'.")
     skills: List[SkillCategory] = Field(description="6-8 compressed skill categories; respect category caps")
     experience: List[ExperienceItem] = Field(description="ALL 5 roles in reverse chronological order. Never drop any.")
     education: List[EducationItem] = Field(description="Lamar University — Master in MIS")
@@ -1013,7 +1063,7 @@ with st.sidebar:
         st.session_state['saved_jd'] = ""
         st.session_state['cover_letter'] = None
         st.rerun()
-    st.caption("Astra v1.2 | Personalised for Lakshmi K")
+    st.caption("Astra v1.3 | Personalised for Lakshmi K")
 
 if not st.session_state['data']:
     st.markdown(f"<h1 style='text-align: center;'>{PAGE_TITLE}</h1>", unsafe_allow_html=True)
