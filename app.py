@@ -260,28 +260,22 @@ Candidate: Lakshmi K — Senior Data Engineer with 5+ years across 5 roles. US-b
 
 Target seniority: Senior (5+ yrs).
 
-=== DOMAIN HONESTY — THE #1 RULE (READ FIRST) ===
-Lakshmi has actually worked in: Insurance / Financial Services (Northwestern Mutual is a Fortune 100 insurance + investment management firm, this counts as direct financial-services experience), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
+=== DOMAIN HONESTY ===
+Lakshmi has actually worked in: Insurance / Financial Services (Northwestern Mutual), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
+When the JD's industry MATCHES: Claim it directly.
+When the JD's industry is DIFFERENT: Frame as transferable multi-cloud DE skills.
+NEVER FABRICATE employment titles. The role_title field MUST exactly match the source resume: "Azure Data Engineer", "AWS Data Engineer", "GCP Data Engineer", "Data Engineer". Only the candidate_title field reflects the JD's role language.
 
-When the JD's industry MATCHES one she has lived in:
-- Claim it directly. Example: "5+ years across regulated financial-services and healthcare data platforms."
-- For Schwab / Fidelity / Vanguard / JPMorgan / brokerage / wealth-management JDs: lead with Northwestern Mutual as a financial-services anchor — do NOT under-sell it as "transferable from healthcare".
-
-When the JD's industry is DIFFERENT (e.g., ad-tech, telecom, gaming):
-- Frame as transferable. Example: "Multi-cloud Data Engineer with cross-industry experience (financial services, healthcare, retail) bringing transferable pipeline and warehousing skills to [target industry]."
-- NEVER claim "5 years in [target industry]" if she hasn't lived it.
-- Inject the JD's domain vocabulary into specific bullets where it fits naturally — never invent industry-specific projects she didn't do.
-
-NEVER FABRICATE skills, tools, or experience that don't exist in the source resume. If the JD demands React, Vue, Angular, .NET, Java backend, C/C++, or any other tool that has zero source-resume signal, DO NOT add it to skills. Add only what she has plausibly used (Python, SQL, Spark, Airflow, the cloud services listed in her source). Skill fabrication is a HARD-FAIL rule — recruiters verify in interviews.
-
-NEVER FABRICATE employment titles. The role_title field for each experience MUST exactly match the source resume:
-- Northwestern Mutual: "Azure Data Engineer"
-- McKesson Corporation: "AWS Data Engineer"
-- Mindtree Limited (BigBasket): "GCP Data Engineer"
-- Geeky Ants India Private Limited: "Data Engineer"
-- Exide Energy Solutions Limited: "Data Engineer"
-US recruiters cross-check via LinkedIn and background-check firms. Rewriting employment titles is resume falsification. Only the candidate_title field (the line under the name in the header) reflects the JD's role language.
-
+=== ZERO MISSING KEYWORDS (ATS HACK) — THE #1 RULE ===
+Your ultimate goal is to leave ZERO missing keywords. Extract EVERY hard skill, tool, framework, and language mentioned in the JD. EVERY SINGLE ONE must appear in the generated resume.
+- If it's a DE tool (e.g., Snowflake, dbt, Fivetran), feature it prominently.
+- If the JD asks for tools outside her core DE stack (e.g., React, Vue, Angular, .NET, Java, C++, DVC, front-end development, niche CRMs), you MUST STILL INCLUDE THEM to pass ATS filters without claiming she is a developer in them.
+- HOW TO FOLD THEM IN LOGICALLY:
+  1. Skills Section: Add them to an "Ecosystem Integration & Exposure" category.
+  2. Experience Bullets: Weave them in as integration points, upstream/downstream dependencies, or cross-collaboration efforts. 
+     * Example for Front-End (React/Vue/Angular): "Engineered scalable data pipelines to feed curated datasets directly into React/Vue.js customer-facing dashboards."
+     * Example for Backend (Java/.NET): "Collaborated with backend teams to integrate PySpark ELT workflows with legacy Java/.NET microservices."
+     * Example for ML (DVC/MLflow): "Provisioned infrastructure and integrated ML versioning tools like DVC to support downstream data science models."
 === METRIC PROVENANCE — STRICT ALLOWED-LIST ===
 Every percentage, ratio, GB/TB volume, or quantitative claim MUST trace to the source resume. Complete allowed-metrics list:
 - Northwestern Mutual: 500GB+/day, 30% (query perf), 25% (latency), 20% (throughput), 30% (workflow efficiency), 20% (deployment time)
@@ -317,18 +311,6 @@ Inject domain vocabulary into bullets where it fits without lying:
 - telecom: CDR processing, network telemetry, subscriber analytics
 - logistics: route optimization, fleet telemetry, supply-chain visibility
 - media: content metadata, viewership analytics
-
-=== KEYWORD HARVESTING + EQUIVALENT TOOL BRIDGING ===
-Extract every hard skill, tool, framework from the JD. Each must appear at least once in skills or bullets — but ONLY if she has a credible equivalent. Equivalent-tool bridging (add the JD's tool alongside her actual tool):
-- JD says "Databricks" + she has Synapse Spark/EMR → add Databricks (she has it at NWM)
-- JD says "MLflow" + she has Azure ML → add MLflow if reasonable
-- JD says "Snowflake" + she has it → keep prominent
-- JD says "Prefect/Dagster" + she has Airflow → add alongside Airflow
-- JD says "Fivetran" + she has Glue/ADF → add Fivetran category
-- JD says "dbt Cloud" + she has dbt → upgrade to "dbt Cloud"
-- JD says "Kafka Connect" + she has Kafka → add "Kafka Connect"
-
-Tools with no source equivalent (React, Vue, Angular, .NET, Java backend, C/C++, niche CRM/ERP) are NOT added. Domain Honesty Rule above applies.
 
 === SUMMARY (5 sentences — substantive professional profile, not a brochure) ===
 This is the showpiece of the resume. A recruiter's eye lands here in the first 6 seconds. It must read like a senior engineer talking, not a marketing block. NEVER mention the target company by name anywhere in the summary — name-dropping reads as desperate template-filling. The summary earns the call by demonstrating depth, not by stating the obvious.
@@ -391,7 +373,7 @@ HARD RULES:
 - Each sentence does ONE job per the structure above. Do not blur sentences together.
 
 === SKILLS ===
-Output 6–8 skill categories. List the tools she actually uses (and credible JD-equivalents per the bridging rule above). Place JD-mentioned tools FIRST in each category. Do NOT manually expand to every related tool — a post-process expansion step handles that automatically. Just list what's in her source plus credible JD-bridges.
+Output 6–8 skill categories. List the tools she actually uses + ALL harvested JD keywords. Place JD-mentioned tools FIRST in each category.
 
 Category content rules — each tool belongs in EXACTLY ONE category:
 - Cloud Platforms: AWS, Azure, GCP (the cloud names only, not services)
@@ -409,19 +391,14 @@ Category content rules — each tool belongs in EXACTLY ONE category:
 - Programming: Python, SQL, PySpark, Linux Shell Scripting, Java (only if JD asks AND source has it)
 - BI & Reporting: Power BI, Tableau, Looker, QuickSight, Google Data Studio, Qlik
 - ML/AI Exposure: TensorFlow, PyTorch, Azure ML, AWS SageMaker, GCP Vertex AI (include only if JD asks)
+- Ecosystem Integration & Exposure (CRITICAL): Place any JD keywords here that are NOT core DE tools (e.g., React, Vue, Angular, .NET, C++, Java backend, DVC, front-end development) so she gets ATS credit.
 
 === EXPERIENCE BULLETS — THE 4 RULES ===
-ALL 5 roles MUST appear in reverse chronological order. Never drop any. Per role: 5–8 responsibilities + 2–3 achievements.
-
-RULE A — WHY IT MATTERS (mandatory pattern): [strong verb] + [what was built/solved] + [scale or scope] + [outcome: improved X by Y%, OR enabled business outcome].
-- Bad: "Architected end-to-end ETL workflows."
-- Good: "Architected end-to-end ETL workflows in Azure Data Factory ingesting 500GB/day, cutting downstream reporting latency by 25% and enabling near real-time financial insights."
-
-RULE B — ANTI-REPETITION: track verbs across all 5 roles. Same responsibility re-phrased per role with domain-specific framing. Verb pool — rotate, never adjacent: built, architected, designed, engineered, shipped, delivered, developed, productionized, stood up, refactored, migrated, hardened, tuned, automated, orchestrated, integrated, scaled. Don't open three bullets in a row with the same verb.
-
-RULE C — ANTI-TOOL-STACKING: maximum 1–2 tools per bullet. Never "worked on Spark, Kafka, Power BI, and Airflow" — that reads as inflated. Each tool gets its own context.
-
-RULE D — QUANTIFY OR SKIP: every bullet ends in a number, scale reference, or concrete business outcome (500GB/day, 30% latency cut, Tier-1 reporting hours, etc.). If a bullet has no metric and no concrete outcome, drop it or merge it. Of the 5–8 responsibilities per role, no more than 2 may lack a metric or scale anchor.
+ALL 5 roles MUST appear in reverse chronological order. Per role: 5–8 responsibilities + 2–3 achievements.
+RULE A — WHY IT MATTERS: [strong verb] + [what was built/solved] + [scale or scope] + [outcome: improved X by Y%, OR enabled business outcome].
+RULE B — ANTI-REPETITION: track verbs across all 5 roles. Rotate verbs.
+RULE C — KEYWORD WEAVING (CRITICAL): You must integrate the non-core JD keywords (React, Vue, DVC, etc.) logically as integration points, frontend-feeds, or cross-functional collaborations in at least 1-2 bullets across the resume.
+RULE D — QUANTIFY OR SKIP: every bullet ends in a number from the allowed metrics list, or a strong qualitative outcome.
 
 ACHIEVEMENTS use BEFORE-TO-AFTER format whenever the source data supports it:
 - Preferred: "Cut Synapse query latency from ~12s to ~7s on 500GB datasets."
