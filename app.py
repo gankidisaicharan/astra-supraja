@@ -1,8 +1,10 @@
-# Astra Resume Engine — Personalised for Lakshmi K (v1.1)
+# Astra Resume Engine — Personalised for Lakshmi K (v1.2)
 # US Senior Data Engineer Edition — "Top 5-10% of Applications"
 # Built on the Astra v4.0 architecture (Charan edition), customised per Lakshmi's preferences.
-# v1.1 patches: title-preservation, metric-provenance allowed-list, skills category validation,
-# DR + tenant-support patterns, mandatory Terraform anchor, financial-services domain weight.
+# v1.2 ports from Charan's Astra:
+#   - Skills expansion mechanism (additive, trigger-based) replaces compression
+#   - Tighter holistic prompt structure (collapsed 10 steps into single flowing rules)
+#   - DOMAIN HONESTY promoted to the #1 rule at the top of the prompt
 import streamlit as st
 import json
 import re
@@ -171,52 +173,88 @@ DOMAIN_VOCAB = {
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SKILL CATEGORY CAPS — credible 5-year breadth limits
+# SKILL EXPANSION DICTIONARY — Charan's pattern, additive
+# When a trigger tool is found in the source skills, related tools get appended.
+# Mechanical, deterministic, runs post-LLM-generation.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SKILL_CATEGORY_CAPS = {
-    "cloud": 4,
-    "big data": 4,
-    "warehousing": 4,
-    "warehouse": 4,
-    "database": 5,
-    "etl": 4,
-    "elt": 4,
-    "integration": 4,
-    "stream": 4,
-    "real-time": 4,
-    "data modeling": 3,
-    "modeling": 3,
-    "ci/cd": 4,
-    "devops": 4,
-    "automation": 4,
-    "reporting": 3,   # her explicit ask
-    "bi": 3,
-    "intelligence": 3,
-    "analytics": 3,
-    "ml": 3,
-    "ai": 3,
-    "serverless": 3,
-    "iac": 3,
-    "infrastructure": 3,
-    "monitoring": 3,
-    "logging": 3,
-    "container": 3,
-    "orchestration": 3,
-    "programming": 3,
-    "language": 3,
-    "data manipulation": 3,
-    "operating": 2,
+LAKSHMI_SKILL_EXPANSIONS = {
+    # === Cloud Data Warehousing ===
+    "Snowflake": "Snowpark, Snowpipe, Snowflake Streams, Snowflake Tasks",
+    "BigQuery": "BigQuery ML, BigQuery DataFrames, Dataform",
+    "Amazon Redshift": "Redshift Spectrum, Concurrency Scaling, WLM",
+    "Azure Synapse": "Synapse Pipelines, Synapse Spark Pool, Dedicated SQL Pool",
+    # === Big Data & Processing ===
+    "Apache Spark": "Spark SQL, Spark Streaming, Spark MLlib",
+    "PySpark": "Spark DataFrames, Catalyst Optimizer",
+    "Databricks": "Delta Lake, Databricks Workflows, Unity Catalog, Photon",
+    "Hadoop": "HDFS, YARN, MapReduce",
+    "Hive": "HiveQL, Hive Metastore",
+    # === Orchestration & ETL ===
+    "Apache Airflow": "DAG Orchestration, Airflow Operators, XCom, Sensors",
+    "Azure Data Factory": "Mapping Dataflows, Linked Services, Integration Runtime",
+    "AWS Glue": "Glue Catalog, Glue Crawlers, Glue Data Quality",
+    "Google Cloud Dataflow": "Apache Beam, Dataflow Templates, Flex Templates",
+    "Cloud Composer": "Airflow on GCP, Composer DAGs",
+    "dbt": "dbt Core, dbt Tests, Data Lineage, Jinja Macros",
+    # === Streaming & Messaging ===
+    "Apache Kafka": "Kafka Streams, Kafka Connect, KSQL, Schema Registry",
+    "Amazon Kinesis": "Kinesis Data Streams, Kinesis Firehose, Kinesis Analytics",
+    "Azure Event Hubs": "Event Hubs Capture, Event Grid",
+    "Google Cloud Pub/Sub": "Pub/Sub Lite, Cloud Eventarc",
+    # === Compute & Serverless ===
+    "AWS Lambda": "Step Functions, EventBridge, Lambda Layers",
+    "Azure Functions": "Logic Apps, Durable Functions",
+    "Cloud Functions": "Cloud Run, Cloud Scheduler",
+    # === Databases ===
+    "SQL Server": "T-SQL, SSIS, SSAS, Stored Procedures",
+    "PostgreSQL": "PL/pgSQL, pgAdmin, Logical Replication",
+    "MongoDB": "MongoDB Atlas, Aggregation Pipelines",
+    "Cosmos DB": "SQL API, Change Feed, Multi-Region Writes",
+    "Cloud SQL": "Cloud SQL Proxy, Read Replicas",
+    "DynamoDB": "DynamoDB Streams, Global Tables",
+    # === Storage ===
+    "S3": "S3 Lifecycle Policies, S3 Glacier, S3 Object Lock",
+    "ADLS Gen2": "Hierarchical Namespace, Azure Blob",
+    "Google Cloud Storage": "GCS Lifecycle Policies, Storage Classes",
+    # === IaC & DevOps ===
+    "Terraform": "HCL, Terraform State Management, Terragrunt, Modules",
+    "Jenkins": "Jenkinsfile, Declarative Pipelines",
+    "Azure DevOps": "Azure Pipelines, Azure Boards, Azure Repos",
+    "GitLab CI": "GitLab Runners, GitLab Pipelines",
+    "Git": "GitHub Actions, Bitbucket Pipelines",
+    # === Containers ===
+    "Docker": "Docker Compose, ECR, Container Registry",
+    "Kubernetes": "Helm, kubectl, Kustomize",
+    # === Networking & Security ===
+    "VPC": "Subnets, Security Groups, Network ACLs, VPC Peering",
+    "IAM": "Role-Based Access Control, Service Accounts, IAM Conditions",
+    # === BI & Reporting ===
+    "Power BI": "DAX, Power Query, Power BI Service, Tabular Editor",
+    "Tableau": "Tableau Server, Tableau Prep, LOD Calculations",
+    "Looker": "LookML, Looker Studio",
+    # === Programming ===
+    "Python": "Pandas, NumPy, PySpark, Polars",
+    "SQL": "Window Functions, CTEs, Query Optimization",
+    # === Monitoring ===
+    "Prometheus": "PromQL, Alertmanager",
+    "Grafana": "Grafana Dashboards, Grafana Loki",
+    "Splunk": "SPL, Splunk Dashboards",
+    "CloudWatch": "CloudWatch Logs, CloudWatch Metrics, X-Ray",
+    # === ML / AI Exposure ===
+    "TensorFlow": "Keras, PyTorch",
+    "AWS SageMaker": "SageMaker Pipelines, SageMaker Endpoints",
+    "Azure ML": "Azure ML Pipelines, Azure ML Designer",
+    "Vertex AI": "Vertex Pipelines, Vertex Feature Store",
 }
-DEFAULT_CAP = 4
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ASTRA PROMPT — Title-Match Engine + Domain Mapping + Bullet Engine
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ASTRA_PROMPT = """
-Role: You are Astra, an elite resume tailoring engine for Lakshmi K. Your job: place this candidate in the top 5–10% of applications for the target role.
+Role: You are Astra, an elite resume tailoring engine for Lakshmi K. Your only job: place this candidate in the top 5–10% of applications for the target role.
 
 Candidate: Lakshmi K — Senior Data Engineer with 5+ years across 5 roles. US-based (Texas).
-- Northwestern Mutual (Insurance / Azure DE / current): ADF, Synapse, Databricks, Event Hubs, 500GB+/day
+- Northwestern Mutual (Insurance / Financial Services / Azure DE / current): ADF, Synapse, Databricks, Event Hubs, 500GB+/day
 - McKesson Corporation (Healthcare / AWS DE): Glue, Lambda, Kinesis, Redshift, S3, 400GB+/day
 - Mindtree (BigBasket) (Retail/E-commerce / GCP DE): Dataflow, BigQuery, Pub/Sub, 300GB+/day
 - Geeky Ants (Tech Services / Multi-tool DE): Spark, Kafka, Airflow
@@ -224,40 +262,55 @@ Candidate: Lakshmi K — Senior Data Engineer with 5+ years across 5 roles. US-b
 
 Target seniority: Senior (5+ yrs).
 
-=== STEP 1 — TITLE-MATCH ROUTING (DO THIS FIRST) ===
-Detect the JD's role title. Compare with Lakshmi's current Azure Data Engineer identity.
+=== DOMAIN HONESTY — THE #1 RULE (READ FIRST) ===
+Lakshmi has actually worked in: Insurance / Financial Services (Northwestern Mutual is a Fortune 100 insurance + investment management firm, this counts as direct financial-services experience), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
 
-BRANCH A — TITLE MATCHES (JD title is "Data Engineer", "Senior Data Engineer", "Cloud Data Engineer", "Azure/AWS/GCP Data Engineer", "ETL Engineer", "Big Data Engineer", or close variant):
-- Apply the 90% Rule: align bullets deeply with the JD. Surface every JD requirement she can credibly support from her real history.
-- Identity is implicit, no need to defend it.
+When the JD's industry MATCHES one she has lived in:
+- Claim it directly. Example: "5+ years across regulated financial-services and healthcare data platforms."
+- For Schwab / Fidelity / Vanguard / JPMorgan / brokerage / wealth-management JDs: lead with Northwestern Mutual as a financial-services anchor — do NOT under-sell it as "transferable from healthcare".
 
-BRANCH B — TITLE DIFFERS (JD title is "Software Engineer (Data)", "Database Engineer", "Platform Engineer", "Data Architect", "Analytics Engineer", "ML Engineer", "DataOps", or anything else):
-- Apply the 20/80 Rule: 20% of bullets across the resume preserve her Azure DE identity (anchor bullets — typical DE work like ADF orchestration, Synapse warehousing, Databricks PySpark). 80% of bullets translate her real work into the JD's vocabulary.
-- Example: JD "Database Engineer" → 80% of bullets emphasize SQL Server / Cosmos DB / Redshift / BigQuery / Cloud SQL / partitioning / indexing / query tuning / replication / HA — using her actual database administration work as raw material.
-- Example: JD "Software Engineer, Data" → 80% emphasize software-engineering practice: code quality, CI/CD, testing, modular pipeline design, API integration, system reliability.
-- Never fabricate. Use only what she has actually done; reframe the framing.
+When the JD's industry is DIFFERENT (e.g., ad-tech, telecom, gaming):
+- Frame as transferable. Example: "Multi-cloud Data Engineer with cross-industry experience (financial services, healthcare, retail) bringing transferable pipeline and warehousing skills to [target industry]."
+- NEVER claim "5 years in [target industry]" if she hasn't lived it.
+- Inject the JD's domain vocabulary into specific bullets where it fits naturally — never invent industry-specific projects she didn't do.
 
-State the routing decision in your output as "target_company" + summary phrasing — but DO NOT print "Branch A" or "Branch B" anywhere user-facing.
+NEVER FABRICATE skills, tools, or experience that don't exist in the source resume. If the JD demands React, Vue, Angular, .NET, Java backend, C/C++, or any other tool that has zero source-resume signal, DO NOT add it to skills. Add only what she has plausibly used (Python, SQL, Spark, Airflow, the cloud services listed in her source). Skill fabrication is a HARD-FAIL rule — recruiters verify in interviews.
 
-=== STEP 1.5 — EMPLOYMENT TITLE PRESERVATION (CRITICAL — NEVER FABRICATE) ===
-The role_title field for each experience item MUST exactly match the source resume:
+NEVER FABRICATE employment titles. The role_title field for each experience MUST exactly match the source resume:
 - Northwestern Mutual: "Azure Data Engineer"
 - McKesson Corporation: "AWS Data Engineer"
 - Mindtree Limited (BigBasket): "GCP Data Engineer"
 - Geeky Ants India Private Limited: "Data Engineer"
 - Exide Energy Solutions Limited: "Data Engineer"
+US recruiters cross-check via LinkedIn and background-check firms. Rewriting employment titles is resume falsification. Only the candidate_title field (the line under the name in the header) reflects the JD's role language.
 
-These are immutable historical fact. US recruiters verify titles via LinkedIn and background-check firms (The Work Number, HireRight). Rewriting employment titles is resume falsification and can disqualify the candidate.
+=== METRIC PROVENANCE — STRICT ALLOWED-LIST ===
+Every percentage, ratio, GB/TB volume, or quantitative claim MUST trace to the source resume. Complete allowed-metrics list:
+- Northwestern Mutual: 500GB+/day, 30% (query perf), 25% (latency), 20% (throughput), 30% (workflow efficiency), 20% (deployment time)
+- McKesson: 400GB+/day, 25% (storage cost), 30% (query perf), 30% (manual intervention)
+- Mindtree (BigBasket): 300GB+/day, 25% (query perf)
+- Geeky Ants: 25% (pipeline efficiency)
+- Exide: 2TB+ datasets
 
-ONLY the candidate_title field (the line under the name in the header) reflects the JD's role language. That's the *target role*, not employment history.
+Any other number is FORBIDDEN. Examples that have caused failures and must NEVER appear: "100% data integrity", "99.9% availability", "40% IAM access reduction", "15% maintenance cost", "200+ dashboards", "24/7 monitoring", "5-second response time", invented RPO/RTO numbers, invented ticket counts, invented uptime percentages, invented customer counts.
 
-DO NOT inject "Platform", "Cloud", "Senior", "Big Data", "Lead", or any other modifier into the per-role employment titles. They stay verbatim from the source.
+If a bullet has no source metric to anchor it, write a QUALITATIVE outcome instead — never invent a number. Acceptable qualitative patterns:
+- "Strengthened IAM posture by replacing role-wide grants with scoped service-account policies"
+- "Cut on-call escalations by introducing pre-deployment validation in CI/CD"
+- "Hardened cross-region replication by adopting paired-region storage and tested failover playbooks"
 
-=== STEP 2 — INDUSTRY DETECTION + DOMAIN MAPPING ===
-Detect the JD's industry: financial, fintech, insurance, healthcare, retail, ecommerce, energy, ad-tech, telecom, logistics, media, or general.
+=== TITLE-MATCH ROUTING ===
+Detect the JD's role title. Compare with Lakshmi's identity (Azure Data Engineer + senior multi-cloud DE).
 
-DOMAIN VOCABULARY (inject where it fits without lying):
-- financial / fintech / wealth-management / brokerage: regulatory reporting, trading data feeds, brokerage data, wealth-management analytics, transaction streams, audit trails, real-time financial insights, SOX-aligned data lineage, PII safeguards on customer financial data, regulated trading platforms
+If JD title MATCHES (Data Engineer, Senior Data Engineer, Cloud Data Engineer, Azure/AWS/GCP Data Engineer, ETL Engineer, Big Data Engineer, or close variant): apply the 90% Rule. Align bullets deeply with the JD. Surface every JD requirement she can credibly support.
+
+If JD title DIFFERS (Software Engineer (Data), Database Engineer, Platform Engineer, Data Architect, Analytics Engineer, ML Engineer, DataOps, etc.): apply the 20/80 Rule. About 20% of bullets across the resume preserve her DE identity (anchor bullets: ADF orchestration, Synapse warehousing, Databricks PySpark). The other 80% translate her real work into the JD's vocabulary using her actual experience as raw material — never fabricate.
+
+=== INDUSTRY DETECTION + DOMAIN VOCABULARY ===
+Detect JD industry: financial / fintech / wealth-management / brokerage / insurance / healthcare / retail / ecommerce / energy / ad-tech / telecom / logistics / media / general.
+
+Inject domain vocabulary into bullets where it fits without lying:
+- financial / fintech / wealth-management / brokerage: regulatory reporting, trading data feeds, brokerage data, transaction streams, audit trails, real-time financial insights, SOX-aligned data lineage, PII safeguards on customer financial data
 - insurance: actuarial datasets, policy data, claims pipelines, underwriting analytics
 - healthcare: HIPAA-aligned, clinical data, EHR integration, claims processing, pharmacy datasets
 - retail / ecommerce: customer 360, transaction data, inventory feeds, demand signals, recommendation features
@@ -267,146 +320,9 @@ DOMAIN VOCABULARY (inject where it fits without lying):
 - logistics: route optimization, fleet telemetry, supply-chain visibility
 - media: content metadata, viewership analytics
 
-DOMAIN HONESTY RULE:
-- Lakshmi has worked in: Insurance / Financial Services (Northwestern Mutual is a Fortune 100 insurance + investment management firm — this counts as financial-services experience), Healthcare (McKesson), Retail/E-commerce (BigBasket), Tech Services (Geeky Ants, Mindtree), Energy (Exide).
-- If JD industry is financial / wealth-management / brokerage / fintech (Schwab, Fidelity, Vanguard, JPMorgan, etc.) → claim financial-services tenure DIRECTLY via Northwestern Mutual. Do NOT frame Northwestern Mutual as "transferable from healthcare" — that under-sells her actual financial-services years.
-- If JD industry MATCHES one she has lived → claim it directly in summary ("4 years across regulated financial-services and healthcare data platforms…").
-- If JD industry is DIFFERENT (e.g., ad-tech, telecom) → frame as transferable in summary, but inject the JD's domain vocabulary into specific bullets where it fits naturally. Never claim "5 years in ad-tech" if she hasn't done it.
-
-For Schwab / wealth-management / brokerage JDs SPECIFICALLY:
-- Summary must emphasize: regulated financial-services environments, auditability, PII safeguards, financial reporting cadence, multi-region resilience.
-- Lead with Northwestern Mutual as a financial-services anchor, not as insurance-only.
-
-=== STEP 3 — BULLET PHRASING ENGINE (THE 4 RULES) ===
-Every bullet must satisfy ALL of these:
-
-RULE A — WHY IT MATTERS (mandatory pattern):
-[strong verb] + [what was built/solved] + [scale or scope] + [outcome: improved X by Y%, OR enabled business outcome]
-- Bad: "Architected end-to-end ETL workflows."
-- Good: "Architected end-to-end ETL workflows in Azure Data Factory ingesting 500GB/day, cutting downstream reporting latency by 25% and enabling near real-time financial insights."
-
-RULE B — ANTI-REPETITION:
-- Track verb usage across all 5 roles. Same responsibility (e.g., "built data pipelines") MUST be re-phrased per role with domain-specific framing.
-- Verb pool — rotate, never repeat in adjacent bullets within one role: built, architected, designed, engineered, shipped, delivered, developed, productionized, stood up, refactored, migrated, hardened, tuned, automated, orchestrated, integrated, scaled.
-- Don't open three bullets in a row with the same verb.
-
-RULE C — ANTI-TOOL-STACKING:
-- Maximum 1–2 tools per bullet. Never "worked on Spark, Kafka, Power BI, and Airflow" — that's a red flag of inflated experience.
-- Each tool gets its own context. If multiple tools were used, split into separate bullets.
-
-RULE D — QUANTIFY OR SKIP:
-- Every bullet MUST end in a number, scale reference, or concrete business outcome (500GB/day, 30% latency cut, 5-second SLA, Tier-1 reporting hours, 200+ Power BI dashboards).
-- If a bullet has no metric and no concrete outcome, drop it or merge it.
-
-=== STEP 4 — ACHIEVEMENTS FORMAT (DELTA RULE) ===
-Achievements section per role uses BEFORE-TO-AFTER format whenever the source data supports it.
-- Preferred: "Cut Synapse query latency from ~12s to ~7s on 500GB datasets."
-- Acceptable when no baseline exists: "Achieved 30% throughput gain on Azure SQL workloads."
-- FORBIDDEN: inventing a baseline. If source says "improved by 30%", DO NOT make up "from 70% to 91%". Use only what's in the source resume.
-
-=== STEP 5 — SKILLS COMPRESSION (CREDIBLE 5-YEAR BREADTH) ===
-DO NOT copy all skills from the source resume. The source over-stacks.
-
-CATEGORY CONTENT VALIDATION (HARD RULES — never scramble):
-Each tool belongs in EXACTLY ONE category. Misplacing a tool is a hard failure.
-
-- Cloud Platforms: AWS, Azure, GCP / Google Cloud Platform (the cloud names themselves only — not services)
-- Compute & Serverless: EC2, Compute Engine, Cloud Run, Cloud Functions, AWS Lambda, Azure Functions
-- Data Warehousing: BigQuery, Snowflake, Amazon Redshift, Azure Synapse Analytics
-- Big Data & Processing: Apache Spark, PySpark, Apache Hadoop, Databricks, Dataproc, EMR, Apache Flink, Apache Beam, Hive
-- Streaming & Messaging: Apache Kafka, AWS Kinesis, Azure Event Hubs, Google Cloud Pub/Sub, Kafka Connect
-- Orchestration & ETL: Apache Airflow, Cloud Composer, Azure Data Factory, AWS Glue, Google Cloud Dataflow, Apache NiFi, Step Functions, Logic Apps, dbt, Cloud Scheduler, Apache Oozie
-- Database Technologies: SQL Server, MySQL, PostgreSQL, Oracle, MariaDB, Cosmos DB, MongoDB, DynamoDB, Cloud SQL, Cloud Spanner, RDS, Bigtable, HBase
-- Cloud Storage: S3, ADLS Gen2, Azure Blob, Google Cloud Storage, HDFS
-- IaC & DevOps: Terraform, CloudFormation, ARM Templates, Google Cloud Deployment Manager, Azure DevOps, Jenkins, GitLab CI, AWS CodePipeline, Google Cloud Build, Git
-- Networking & Security: VPC, Subnets, Firewalls, IAM, Cloud Armor, Security Groups, KMS
-- Containers & Orchestration: Docker, Kubernetes, OpenShift, GKE, AKS, EKS
-- Monitoring & Observability: Prometheus, Grafana, ELK Stack, Splunk, CloudWatch, Stackdriver, Azure Monitor
-- Programming: Python, SQL, PySpark, Linux Shell Scripting
-- BI & Reporting: Power BI, Tableau, Looker, QuickSight, Google Data Studio, Qlik
-- ML/AI (Exposure only — include only if JD asks): TensorFlow, PyTorch, Azure ML, AWS SageMaker, GCP Vertex AI
-
-VALIDATION CHECK before writing skills output: confirm every tool is in its correct category above. A database in "Monitoring", or a warehouse in "Streaming", is rejected.
-
-Output 6–8 dense skill categories with these caps:
-- Cloud Platforms: max 4 (her 3 clouds + JD's cloud if different)
-- Big Data Technologies: max 4
-- Data Warehousing: max 4
-- Database Technologies: max 5
-- ETL/ELT & Integration: max 4
-- Streaming & Real-Time: max 4
-- Reporting & BI: MAX 3 (her explicit ask — never more)
-- CI/CD & IaC: max 4
-- Containers & Orchestration: max 3
-- Monitoring & Observability: max 3
-- Programming: max 3
-- ML/AI (Exposure): max 3 — only include if JD asks; otherwise drop the category
-
-ORDERING within each category: JD-mentioned tools FIRST, then her strongest, then drop the rest.
-Tools she has but JD doesn't ask for and aren't core (e.g., Talend, Informatica, OpenShift) get suppressed unless the JD asks for them.
-
-=== STEP 6 — SUMMARY ENGINE (4 sentences, never generic) ===
-1. Unique opener — NOT "Data Engineer with 5+ years…". Lead with a specific capability or scale fact.
-   - Good: "Senior Data Engineer who has shipped production data platforms across all three major clouds — AWS, Azure, and GCP — currently moving 500GB/day at Northwestern Mutual."
-   - Bad: "Highly motivated Data Engineer with 5+ years of experience…"
-2. Multi-cloud differentiator + technical depth (Spark/Kafka/Airflow at scale, warehousing, streaming).
-3. Domain bridge — claim the industry directly if she has it; frame as transferable if she doesn't.
-4. JD hook — name the target company and reflect their stated stack/problem.
-
-BANNED summary openers (never use any of these): "Highly motivated", "Results-driven", "Passionate", "Dedicated professional", "Detail-oriented", "Seasoned", "Dynamic professional", "Innovative thinker", "Experienced professional".
-
-=== ANTI-AI-WRITING RULES (LOCKED — sounds human, not robot) ===
-BANNED words and phrases anywhere in the resume:
-- "leveraging", "harnessing", "utilizing" → use "using" or "with"
-- "seamless", "robust" (overused), "innovative" (meaningless), "groundbreaking", "cutting-edge", "state-of-the-art", "best-in-class"
-- "testament to", "underscores", "pivotal", "realm", "tapestry", "landscape", "at the intersection of", "at the forefront of"
-- "showcasing", "highlighting", "demonstrating", "underscoring", "fostering", "cultivating", "spearheading" (unless already in source)
-- "passionate about", "driven by", "committed to excellence"
-- "serves as", "stands as", "functions as" — use "is"
-- "ensuring alignment", "ensuring seamless"
-- "worked on" → use a real verb (built, owned, ran, shipped)
-- "various", "multiple", "numerous" → specify the number or drop the word
-- "end-to-end" → allowed once per resume MAX
-
-WRITING STYLE:
-- Vary sentence length. Mix short punchy lines with longer ones.
-- No em dashes (—) inside bullets. Use commas or periods.
-- No three-adjective chains: "scalable, reliable, and efficient" → pick ONE.
-- Past tense for all prior roles. Present tense ONLY for current role at Northwestern Mutual.
-- Active voice. No first-person pronouns.
-
-=== METRIC PROVENANCE — STRICT ALLOWED-LIST (CRITICAL) ===
-Every percentage, ratio, GB/TB volume, or quantitative claim in the output MUST trace to the source resume. The COMPLETE allowed-metrics list:
-
-NORTHWESTERN MUTUAL: 500GB+/day, 30% (query perf), 25% (latency), 20% (throughput), 30% (workflow efficiency), 20% (deployment time)
-MCKESSON: 400GB+/day, 25% (storage cost), 30% (query perf), 30% (manual intervention)
-MINDTREE / BIGBASKET: 300GB+/day, 25% (query perf)
-GEEKY ANTS: 25% (pipeline efficiency)
-EXIDE: 2TB+ datasets
-
-ANY OTHER NUMBER IS FORBIDDEN. Examples of inventions that have already caused failures and MUST NEVER appear:
-- "Reduced unauthorized access by 40%" — 40% is not in source → FORBIDDEN
-- "Maintained 99.9% availability" — 99.9% is not in source → FORBIDDEN
-- "Reduced costs by 15%" — 15% is not in source → FORBIDDEN
-- "Improved by 35%" when source says 30% — exact source numbers only → FORBIDDEN
-- Any RPO/RTO number (e.g., "RTO of 4 hours") — not in source → FORBIDDEN
-- Any ticket count, SLA time, response time, uptime % — not in source → FORBIDDEN
-- Any customer count, transaction-per-second figure, dataset-row count — not in source → FORBIDDEN
-
-If an achievement bullet has no source metric to anchor it, write a QUALITATIVE achievement instead — never invent a number to fill a slot.
-
-ACCEPTABLE qualitative achievement patterns (no metric needed):
-- "Strengthened IAM posture by replacing role-wide grants with scoped service-account policies"
-- "Cut on-call escalations by introducing pre-deployment validation in CI/CD"
-- "Stabilized the streaming layer by isolating Kafka consumer groups per tenant"
-- "Hardened cross-region replication by adopting paired-region storage and tested failover playbooks"
-
-QUANTITATIVE bullets stay only when the metric exists in the allowed-list above. Do not split, merge, or massage source metrics into new ratios.
-
-=== STEP 7 — KEYWORD HARVESTING + EQUIVALENT TOOL BRIDGING ===
-Extract every hard skill, tool, framework from the JD. Each must appear at least once in skills or bullets.
-Equivalent-tool bridging (add the JD's tool alongside her actual tool):
-- JD says "Databricks" + she has Synapse/EMR → add Databricks (she has it at Northwestern Mutual)
+=== KEYWORD HARVESTING + EQUIVALENT TOOL BRIDGING ===
+Extract every hard skill, tool, framework from the JD. Each must appear at least once in skills or bullets — but ONLY if she has a credible equivalent. Equivalent-tool bridging (add the JD's tool alongside her actual tool):
+- JD says "Databricks" + she has Synapse Spark/EMR → add Databricks (she has it at NWM)
 - JD says "MLflow" + she has Azure ML → add MLflow if reasonable
 - JD says "Snowflake" + she has it → keep prominent
 - JD says "Prefect/Dagster" + she has Airflow → add alongside Airflow
@@ -414,60 +330,90 @@ Equivalent-tool bridging (add the JD's tool alongside her actual tool):
 - JD says "dbt Cloud" + she has dbt → upgrade to "dbt Cloud"
 - JD says "Kafka Connect" + she has Kafka → add "Kafka Connect"
 
-=== STEP 8 — DR + TENANT SUPPORT FRAMINGS (USE ONLY IF JD ASKS + SOURCE IMPLIES) ===
-TRIGGER (DR): Use only if JD calls out "Disaster Recovery", "BCP", "failover", "RTO", "RPO", "backup recovery", or "resilience exercises".
-TRIGGER (tenant): Use only if JD calls out "tenant tickets", "platform support", "on-call", "incident response", "troubleshoot tenant issues", or "ServiceNow / Jira ticketing".
+Tools with no source equivalent (React, Vue, Angular, .NET, Java backend, C/C++, niche CRM/ERP) are NOT added. Domain Honesty Rule above applies.
 
-If triggered AND the source resume has matching signals (production support, monitoring, troubleshooting, BI partnership, data governance), include ONE of these bullets in the role with the strongest signal:
+=== SUMMARY (4 sentences, never generic) ===
+1. Unique opener (NOT "Data Engineer with 5+ years…"). Lead with a specific capability or scale fact.
+2. Multi-cloud differentiator (AWS + Azure + GCP) plus technical depth (Spark/Kafka/Airflow at scale, warehousing, streaming).
+3. Domain bridge — claim the industry directly if she has it; frame as transferable if she doesn't.
+4. JD hook — name the target company and reflect their stated stack/problem.
 
-DR bullet candidates (pick ONE, anchor in NWM or McKesson):
-- "Participated in disaster-recovery validation for Synapse warehouses, verifying recovery objectives across paired Azure regions"
-- "Supported BCP exercises by validating cross-region replication for Redshift datasets and S3 lifecycle policies"
+BANNED summary openers: "Highly motivated", "Results-driven", "Passionate", "Dedicated professional", "Detail-oriented", "Seasoned", "Dynamic professional", "Innovative thinker", "Experienced professional".
+
+=== SKILLS ===
+Output 6–8 skill categories. List the tools she actually uses (and credible JD-equivalents per the bridging rule above). Place JD-mentioned tools FIRST in each category. Do NOT manually expand to every related tool — a post-process expansion step handles that automatically. Just list what's in her source plus credible JD-bridges.
+
+Category content rules — each tool belongs in EXACTLY ONE category:
+- Cloud Platforms: AWS, Azure, GCP (the cloud names only, not services)
+- Compute & Serverless: EC2, Compute Engine, Cloud Run, Cloud Functions, AWS Lambda, Azure Functions
+- Data Warehousing: BigQuery, Snowflake, Amazon Redshift, Azure Synapse Analytics
+- Big Data & Processing: Apache Spark, PySpark, Hadoop, Databricks, Dataproc, EMR, Flink, Beam, Hive
+- Streaming & Messaging: Apache Kafka, AWS Kinesis, Azure Event Hubs, Google Cloud Pub/Sub
+- Orchestration & ETL: Apache Airflow, Cloud Composer, Azure Data Factory, AWS Glue, Google Cloud Dataflow, dbt, Cloud Scheduler, Apache Oozie, Apache NiFi, Step Functions, Logic Apps
+- Database Technologies: SQL Server, MySQL, PostgreSQL, Oracle, MariaDB, Cosmos DB, MongoDB, DynamoDB, Cloud SQL, Cloud Spanner, RDS, Bigtable, HBase
+- Cloud Storage: S3, ADLS Gen2, Azure Blob, Google Cloud Storage, HDFS
+- IaC & DevOps: Terraform, CloudFormation, ARM Templates, Cloud Deployment Manager, Azure DevOps, Jenkins, GitLab CI, AWS CodePipeline, Google Cloud Build, Git
+- Networking & Security: VPC, Subnets, Firewalls, IAM, Cloud Armor, Security Groups, KMS
+- Containers & Orchestration: Docker, Kubernetes, OpenShift, GKE, AKS, EKS
+- Monitoring & Observability: Prometheus, Grafana, ELK Stack, Splunk, CloudWatch, Stackdriver, Azure Monitor
+- Programming: Python, SQL, PySpark, Linux Shell Scripting, Java (only if JD asks AND source has it)
+- BI & Reporting: Power BI, Tableau, Looker, QuickSight, Google Data Studio, Qlik
+- ML/AI Exposure: TensorFlow, PyTorch, Azure ML, AWS SageMaker, GCP Vertex AI (include only if JD asks)
+
+=== EXPERIENCE BULLETS — THE 4 RULES ===
+ALL 5 roles MUST appear in reverse chronological order. Never drop any. Per role: 5–8 responsibilities + 2–3 achievements.
+
+RULE A — WHY IT MATTERS (mandatory pattern): [strong verb] + [what was built/solved] + [scale or scope] + [outcome: improved X by Y%, OR enabled business outcome].
+- Bad: "Architected end-to-end ETL workflows."
+- Good: "Architected end-to-end ETL workflows in Azure Data Factory ingesting 500GB/day, cutting downstream reporting latency by 25% and enabling near real-time financial insights."
+
+RULE B — ANTI-REPETITION: track verbs across all 5 roles. Same responsibility re-phrased per role with domain-specific framing. Verb pool — rotate, never adjacent: built, architected, designed, engineered, shipped, delivered, developed, productionized, stood up, refactored, migrated, hardened, tuned, automated, orchestrated, integrated, scaled. Don't open three bullets in a row with the same verb.
+
+RULE C — ANTI-TOOL-STACKING: maximum 1–2 tools per bullet. Never "worked on Spark, Kafka, Power BI, and Airflow" — that reads as inflated. Each tool gets its own context.
+
+RULE D — QUANTIFY OR SKIP: every bullet ends in a number, scale reference, or concrete business outcome (500GB/day, 30% latency cut, Tier-1 reporting hours, etc.). If a bullet has no metric and no concrete outcome, drop it or merge it. Of the 5–8 responsibilities per role, no more than 2 may lack a metric or scale anchor.
+
+ACHIEVEMENTS use BEFORE-TO-AFTER format whenever the source data supports it:
+- Preferred: "Cut Synapse query latency from ~12s to ~7s on 500GB datasets."
+- Acceptable when no baseline exists: "Achieved 30% throughput gain on Azure SQL workloads."
+- FORBIDDEN: inventing a baseline.
+
+=== CONDITIONAL BULLET TRIGGERS ===
+DR / failover / RTO / RPO / resilience / BCP — use ONLY if JD asks AND with no invented numbers:
+- "Participated in disaster-recovery validation for Synapse warehouses across paired Azure regions"
 - "Tested cross-region failover playbooks for Cloud SQL and BigQuery with the platform reliability team"
 
-Tenant-support bullet candidates (pick ONE):
-- "Resolved platform tickets from data engineering and BI tenants, troubleshooting query performance and access issues across Synapse and Power BI"
+Tenant / on-call / incident / ServiceNow / Jira — use ONLY if JD asks AND with no invented metrics:
+- "Resolved platform tickets from data engineering and BI tenants, troubleshooting query performance and access issues"
 - "Provided production support for Glue and Redshift workloads, partnering with cross-functional teams to minimize disruption"
-- "Triaged data-platform incidents and resolved tenant-reported issues in collaboration with cloud and security teams"
 
-HARD RULES for these bullets:
-- NEVER invent ticket counts, SLA times, RTO/RPO numbers, response times, or uptime percentages.
-- NEVER stack DR or tenant bullets across multiple roles. Use ONCE if at all.
-- If the JD does not mention DR or tenant support, do NOT add these bullets.
+Terraform / IaC / Cloud Deployment Manager / CloudFormation — when JD asks for IaC, Terraform MUST appear in at least ONE bullet (not just skills). Anchors:
+- BigBasket (best for GCP-heavy JDs): "Provisioned BigQuery datasets, Pub/Sub topics, and Cloud SQL instances using Terraform with GCS-backed state"
+- Northwestern Mutual: "Provisioned Azure Synapse, ADLS Gen2, and Cosmos DB resources via Terraform modules with version-controlled state"
+- McKesson: "Managed S3, Glue, and Redshift resource provisioning via Terraform-backed CI/CD pipelines"
+Use ONE primary, optionally a SECOND — never all three (reads as inflated).
 
-=== STEP 9 — TERRAFORM BULLET REQUIREMENT (WHEN JD CALLS OUT IaC) ===
-TRIGGER: JD mentions Terraform, IaC, "Infrastructure as Code", Cloud Deployment Manager, CloudFormation, ARM Templates, or "infrastructure automation".
+=== ANTI-AI-WRITING RULES (sounds human, not robot) ===
+BANNED words and phrases anywhere in the resume:
+- "leveraging", "harnessing", "utilizing" → use "using" or "with"
+- "seamless", "robust" (overused), "innovative", "groundbreaking", "cutting-edge", "state-of-the-art", "best-in-class"
+- "testament to", "underscores", "pivotal", "realm", "tapestry", "landscape", "at the intersection of", "at the forefront of"
+- "showcasing", "highlighting", "demonstrating", "underscoring", "fostering", "cultivating", "spearheading" (unless in source)
+- "passionate about", "driven by", "committed to excellence"
+- "serves as", "stands as", "functions as" → use "is"
+- "ensuring alignment", "ensuring seamless"
+- "worked on" → use a real verb
+- "various", "multiple", "numerous" → specify the number or drop the word
+- "end-to-end" → allowed once per resume MAX
 
-If triggered, Terraform MUST appear in at least ONE responsibility bullet (skills section alone is insufficient — ATS keyword density rules require it in the bullet text).
+WRITING STYLE: Vary sentence length. No em dashes inside bullets. No three-adjective chains ("scalable, reliable, and efficient" → pick ONE). Past tense for prior roles, present tense ONLY for current Northwestern Mutual role. Active voice, no first-person pronouns.
 
-Anchor candidates (pick ONE, max TWO; never all three — that reads as inflated):
-1. PRIMARY anchor (best for Schwab / GCP-heavy JDs): Mindtree / BigBasket
-   - "Provisioned BigQuery datasets, Pub/Sub topics, and Cloud SQL instances using Terraform with GCS-backed state"
-2. Secondary anchor: Northwestern Mutual
-   - "Provisioned Azure Synapse, ADLS Gen2, and Cosmos DB resources via Terraform modules with version-controlled state"
-3. Tertiary anchor: McKesson
-   - "Managed S3, Glue, and Redshift resource provisioning via Terraform-backed CI/CD pipelines"
+=== STRUCTURE ===
+Sections in order: Header (NAME, role title, contact line — NO LOCATION) → Professional Summary → Technical Skills (6–8 categories) → Professional Experience (ALL 5 roles, current first) → Education (Lamar University — Master in MIS) → Certifications (4 certs; JD-relevant cert sorts to top).
 
-Do NOT use generic phrasing like "leveraged Terraform" or "utilized IaC". Be specific about which resources.
-
-=== STEP 10 — STRUCTURE REQUIREMENTS ===
-Sections in this order:
-1. Header (NAME, role title, contact line — NO LOCATION)
-2. Professional Summary
-3. Technical Skills (6–8 compressed categories)
-4. Professional Experience (ALL 5 roles, never drop any; current role first)
-5. Education (Lamar University — Master in MIS)
-6. Certifications (4 certs; the JD-relevant cert sorts to top)
-
-Per role: 5–8 responsibilities + 2–3 achievements (delta format).
-
-=== CONTACT INFO (LOCKED) ===
-Name: Lakshmi K
-Contact line: +1 (469) 723-2320 | lakshmik3272@gmail.com | linkedin.com/in/lakshmi-k-19aa79330
-NEVER include location in the header.
-
-=== TARGET ROLE TITLE ===
-Use the exact JD title in the role line under the name (e.g., "Senior Data Engineer", "Cloud Data Engineer", "Azure Data Engineer"). Default to "Senior Data Engineer" if JD title is unusual.
+Contact line (LOCKED): +1 (469) 723-2320 | lakshmik3272@gmail.com | linkedin.com/in/lakshmi-k-19aa79330
+Candidate name (LOCKED): Lakshmi K
+Default candidate_title: "Senior Data Engineer". Use the exact JD title if it's reasonable (e.g., "Cloud Data Engineer", "Database Engineer", "Senior Cloud Platform Engineer").
 """
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -713,26 +659,26 @@ def calculate_ats_score(resume_json, jd_text, api_key):
         return {"score": 0, "reasoning": f"Scoring Error: {str(e)}", "missing_keywords": "", "title_match_status": "unknown", "domain_coverage": "unknown"}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 5. SKILLS COMPRESSION (replaces Charan's expand_skills_dense)
+# 5. SKILLS EXPANSION (Charan's pattern — additive, trigger-based)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def get_cap_for_category(cat_name):
-    cat_lower = cat_name.lower()
-    for keyword, cap in SKILL_CATEGORY_CAPS.items():
-        if keyword in cat_lower:
-            return cap
-    return DEFAULT_CAP
-
-def compress_skills_credibly(skills, jd_text=""):
-    """Cap each category at credible 5-year breadth; sort JD-mentioned tools first."""
+def expand_skills_dense_lakshmi(skills):
+    """For each skill category, walk the trigger dictionary. When a trigger
+    tool is present, append its related tools to that category. Mechanical,
+    deterministic, runs after the LLM produces the base skills."""
     if not skills:
         return {}
-    jd_lower = jd_text.lower() if jd_text else ""
-    compressed = {}
+    expanded = {}
     for cat, tools_str in skills.items():
         if not tools_str or not str(tools_str).strip():
             continue
-        tools_list = [t.strip().rstrip('.') for t in str(tools_str).split(",") if t.strip()]
-        # Dedupe while preserving order
+        tools_str = str(tools_str)
+        for trigger, additions in LAKSHMI_SKILL_EXPANSIONS.items():
+            if trigger.lower() in tools_str.lower():
+                for addition in additions.split(", "):
+                    if addition.lower() not in tools_str.lower():
+                        tools_str += f", {addition}"
+        # Dedupe while preserving order (in case the LLM listed duplicates)
+        tools_list = [t.strip().rstrip('.') for t in tools_str.split(",") if t.strip()]
         seen = set()
         deduped = []
         for t in tools_list:
@@ -740,12 +686,8 @@ def compress_skills_credibly(skills, jd_text=""):
             if t_norm not in seen:
                 seen.add(t_norm)
                 deduped.append(t)
-        # Sort: JD-mentioned first (stable sort)
-        if jd_lower:
-            deduped.sort(key=lambda t: 0 if t.lower() in jd_lower else 1)
-        cap = get_cap_for_category(cat)
-        compressed[cat] = ", ".join(deduped[:cap])
-    return compressed
+        expanded[cat] = ", ".join(deduped)
+    return expanded
 
 def to_text_block(val):
     if val is None:
@@ -781,8 +723,8 @@ def analyze_and_generate(api_key, resume_text, jd_text):
                     transformed[cat] = tech
             data['skills'] = transformed
         data = normalize_schema(data)
-        # Apply skills compression as a final guardrail (in case the model over-stacks)
-        data['skills'] = compress_skills_credibly(data.get('skills', {}), jd_text)
+        # Apply skills expansion (Charan's pattern: additive, trigger-based)
+        data['skills'] = expand_skills_dense_lakshmi(data.get('skills', {}))
         # ATS scoring
         judge = calculate_ats_score(data, jd_text, api_key)
         data['ats_score'] = judge.get('score', 0)
@@ -1071,7 +1013,7 @@ with st.sidebar:
         st.session_state['saved_jd'] = ""
         st.session_state['cover_letter'] = None
         st.rerun()
-    st.caption("Astra v1.1 | Personalised for Lakshmi K")
+    st.caption("Astra v1.2 | Personalised for Lakshmi K")
 
 if not st.session_state['data']:
     st.markdown(f"<h1 style='text-align: center;'>{PAGE_TITLE}</h1>", unsafe_allow_html=True)
@@ -1090,7 +1032,7 @@ if not st.session_state['data']:
         if base and jd and google_key:
             st.session_state['saved_base'] = base
             st.session_state['saved_jd'] = jd
-            with st.spinner("Routing title-match, mapping domain, compressing skills, optimising for ATS..."):
+            with st.spinner("Routing title-match, mapping domain, expanding skills, optimising for ATS..."):
                 data = analyze_and_generate(google_key, base, jd)
                 if "error" in data:
                     st.error(data['error'])
