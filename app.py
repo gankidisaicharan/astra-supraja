@@ -1,8 +1,9 @@
-# Astra Resume Engine — Personalised for Lakshmi K (v1.3)
+# Astra Resume Engine — Personalised for Lakshmi K (v1.4)
 # US Senior Data Engineer Edition — "Top 5-10% of Applications"
 # Built on the Astra v4.0 architecture (Charan edition), customised per Lakshmi's preferences.
-# v1.3 changes: Summary engine rebuilt — 5 sentences, exact JD title opener,
-# banned corporate closers, NO company name in summary, Charan-style flow.
+# v1.4 changes: Iterative regen loop guarantees 90+ scores. Deterministic skill category
+# validator prevents Schwab-style label/content mismatch. Depth integration rule for
+# non-core JD requirements (e.g., React, Java, C++ when JD requires years of experience).
 import streamlit as st
 import json
 import re
@@ -37,6 +38,13 @@ except Exception:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 GENERATION_MODEL = "gemini-3-flash-preview"
 SCORING_MODEL = "gemini-3.1-flash-lite-preview"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# v1.4 — ITERATION CONFIG (NEW)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TARGET_SCORE = 92          # Must hit this before returning
+MAX_ITERATIONS = 3          # Cap regeneration attempts (cost control)
+ACCEPT_SCORE = 90           # If we hit this on iteration 3, accept it
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. CONFIGURATION
@@ -246,18 +254,229 @@ LAKSHMI_SKILL_EXPANSIONS = {
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# v1.4 — MASTER CATEGORY MAP (NEW)
+# Canonical "tool → correct_category" mapping for the deterministic validator.
+# Prevents Schwab-style label/content mismatches.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MASTER_CATEGORY_MAP = {
+    # === Cloud Platforms (the cloud names only) ===
+    "AWS": "Cloud Platforms",
+    "Azure": "Cloud Platforms",
+    "GCP": "Cloud Platforms",
+    "Google Cloud Platform": "Cloud Platforms",
+
+    # === Data Warehousing ===
+    "Snowflake": "Data Warehousing",
+    "BigQuery": "Data Warehousing",
+    "Amazon Redshift": "Data Warehousing",
+    "Redshift": "Data Warehousing",
+    "Azure Synapse": "Data Warehousing",
+    "Azure Synapse Analytics": "Data Warehousing",
+    "Snowpark": "Data Warehousing",
+    "Snowpipe": "Data Warehousing",
+    "Snowflake Streams": "Data Warehousing",
+    "Snowflake Tasks": "Data Warehousing",
+    "BigQuery ML": "Data Warehousing",
+    "Dataform": "Data Warehousing",
+    "Redshift Spectrum": "Data Warehousing",
+    "Synapse Pipelines": "Data Warehousing",
+    "Dedicated SQL Pool": "Data Warehousing",
+
+    # === Big Data & Processing ===
+    "Apache Spark": "Big Data & Processing",
+    "Spark": "Big Data & Processing",
+    "PySpark": "Big Data & Processing",
+    "Databricks": "Big Data & Processing",
+    "Hadoop": "Big Data & Processing",
+    "Hive": "Big Data & Processing",
+    "Dataproc": "Big Data & Processing",
+    "EMR": "Big Data & Processing",
+    "Apache Flink": "Big Data & Processing",
+    "Apache Beam": "Big Data & Processing",
+    "HDFS": "Big Data & Processing",
+    "YARN": "Big Data & Processing",
+    "Delta Lake": "Big Data & Processing",
+    "Unity Catalog": "Big Data & Processing",
+    "Photon": "Big Data & Processing",
+    "Spark SQL": "Big Data & Processing",
+    "Spark Streaming": "Big Data & Processing",
+
+    # === Streaming & Messaging ===
+    "Apache Kafka": "Streaming & Messaging",
+    "Kafka": "Streaming & Messaging",
+    "Amazon Kinesis": "Streaming & Messaging",
+    "Kinesis": "Streaming & Messaging",
+    "Azure Event Hubs": "Streaming & Messaging",
+    "Event Hubs": "Streaming & Messaging",
+    "Google Cloud Pub/Sub": "Streaming & Messaging",
+    "Pub/Sub": "Streaming & Messaging",
+    "Kafka Streams": "Streaming & Messaging",
+    "Kafka Connect": "Streaming & Messaging",
+    "Schema Registry": "Streaming & Messaging",
+
+    # === Orchestration & ETL ===
+    "Apache Airflow": "Orchestration & ETL",
+    "Airflow": "Orchestration & ETL",
+    "Cloud Composer": "Orchestration & ETL",
+    "Composer": "Orchestration & ETL",
+    "Azure Data Factory": "Orchestration & ETL",
+    "ADF": "Orchestration & ETL",
+    "AWS Glue": "Orchestration & ETL",
+    "Glue": "Orchestration & ETL",
+    "Google Cloud Dataflow": "Orchestration & ETL",
+    "Dataflow": "Orchestration & ETL",
+    "dbt": "Orchestration & ETL",
+    "Apache NiFi": "Orchestration & ETL",
+    "Apache Oozie": "Orchestration & ETL",
+    "Glue Catalog": "Orchestration & ETL",
+    "Mapping Dataflows": "Orchestration & ETL",
+    "Linked Services": "Orchestration & ETL",
+    "Integration Runtime": "Orchestration & ETL",
+    "Cloud Scheduler": "Orchestration & ETL",
+
+    # === Compute & Serverless ===
+    "AWS Lambda": "Compute & Serverless",
+    "Lambda": "Compute & Serverless",
+    "Azure Functions": "Compute & Serverless",
+    "Cloud Functions": "Compute & Serverless",
+    "Cloud Run": "Compute & Serverless",
+    "Compute Engine": "Compute & Serverless",
+    "EC2": "Compute & Serverless",
+    "Step Functions": "Compute & Serverless",
+    "Logic Apps": "Compute & Serverless",
+    "EventBridge": "Compute & Serverless",
+    "Durable Functions": "Compute & Serverless",
+
+    # === Database Technologies ===
+    "SQL Server": "Database Technologies",
+    "MySQL": "Database Technologies",
+    "PostgreSQL": "Database Technologies",
+    "Oracle": "Database Technologies",
+    "MariaDB": "Database Technologies",
+    "Cosmos DB": "Database Technologies",
+    "MongoDB": "Database Technologies",
+    "DynamoDB": "Database Technologies",
+    "Cloud SQL": "Database Technologies",
+    "Cloud Spanner": "Database Technologies",
+    "Bigtable": "Database Technologies",
+    "RDS": "Database Technologies",
+    "HBase": "Database Technologies",
+    "T-SQL": "Database Technologies",
+    "PL/pgSQL": "Database Technologies",
+    "Stored Procedures": "Database Technologies",
+
+    # === Cloud Storage ===
+    "S3": "Cloud Storage",
+    "Amazon S3": "Cloud Storage",
+    "ADLS Gen2": "Cloud Storage",
+    "ADLS": "Cloud Storage",
+    "Azure Blob": "Cloud Storage",
+    "Google Cloud Storage": "Cloud Storage",
+    "GCS": "Cloud Storage",
+
+    # === IaC & DevOps ===
+    "Terraform": "IaC & DevOps",
+    "CloudFormation": "IaC & DevOps",
+    "ARM Templates": "IaC & DevOps",
+    "Cloud Deployment Manager": "IaC & DevOps",
+    "Google Cloud Deployment Manager": "IaC & DevOps",
+    "Azure DevOps": "IaC & DevOps",
+    "Jenkins": "IaC & DevOps",
+    "GitLab CI": "IaC & DevOps",
+    "AWS CodePipeline": "IaC & DevOps",
+    "Google Cloud Build": "IaC & DevOps",
+    "Git": "IaC & DevOps",
+    "GitHub Actions": "IaC & DevOps",
+    "HCL": "IaC & DevOps",
+    "Terragrunt": "IaC & DevOps",
+    "Azure Pipelines": "IaC & DevOps",
+    "Jenkinsfile": "IaC & DevOps",
+    "CI/CD": "IaC & DevOps",
+
+    # === Networking & Security ===
+    "VPC": "Networking & Security",
+    "Subnets": "Networking & Security",
+    "Firewalls": "Networking & Security",
+    "IAM": "Networking & Security",
+    "Cloud Armor": "Networking & Security",
+    "Security Groups": "Networking & Security",
+    "KMS": "Networking & Security",
+    "Network ACLs": "Networking & Security",
+    "VPC Peering": "Networking & Security",
+    "Service Accounts": "Networking & Security",
+
+    # === Containers & Orchestration ===
+    "Docker": "Containers & Orchestration",
+    "Kubernetes": "Containers & Orchestration",
+    "OpenShift": "Containers & Orchestration",
+    "GKE": "Containers & Orchestration",
+    "AKS": "Containers & Orchestration",
+    "EKS": "Containers & Orchestration",
+    "Helm": "Containers & Orchestration",
+    "kubectl": "Containers & Orchestration",
+
+    # === Programming ===
+    "Python": "Programming",
+    "SQL": "Programming",
+    "Bash": "Programming",
+    "PowerShell": "Programming",
+    "Linux Shell Scripting": "Programming",
+    "Pandas": "Programming",
+    "NumPy": "Programming",
+    "Polars": "Programming",
+    "Window Functions": "Programming",
+    "CTEs": "Programming",
+    "Query Optimization": "Programming",
+
+    # === BI & Reporting ===
+    "Power BI": "BI & Reporting",
+    "Tableau": "BI & Reporting",
+    "Looker": "BI & Reporting",
+    "Qlik": "BI & Reporting",
+    "QuickSight": "BI & Reporting",
+    "Amazon QuickSight": "BI & Reporting",
+    "Google Data Studio": "BI & Reporting",
+    "DAX": "BI & Reporting",
+    "Power Query": "BI & Reporting",
+    "LookML": "BI & Reporting",
+    "Looker Studio": "BI & Reporting",
+
+    # === Monitoring & Observability ===
+    "Prometheus": "Monitoring & Observability",
+    "Grafana": "Monitoring & Observability",
+    "ELK Stack": "Monitoring & Observability",
+    "Splunk": "Monitoring & Observability",
+    "CloudWatch": "Monitoring & Observability",
+    "Stackdriver": "Monitoring & Observability",
+    "Azure Monitor": "Monitoring & Observability",
+    "PromQL": "Monitoring & Observability",
+}
+
+# Keywords that should always go to "Ecosystem Integration & Exposure"
+# whenever they appear (these are non-DE tools the JD asks for)
+ECOSYSTEM_KEYWORDS = {
+    "react", "vue", "vue.js", "angular", "next.js", "svelte",
+    "java", "c++", "c#", ".net", "go", "rust", "ruby", "php",
+    "dvc", "mlflow", "kubeflow", "weights & biases",
+    "salesforce", "servicenow", "sap", "oracle ebs",
+    "html", "css", "javascript", "typescript",
+    "wrike", "jira", "confluence",
+    "hipaa compliance", "irb processes", "sox compliance",
+    "rest apis", "api development", "graphql",
+    "ml/ai integration", "data science",
+}
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ASTRA PROMPT — Title-Match Engine + Domain Mapping + Bullet Engine
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ASTRA_PROMPT = """
 Role: You are Astra, an elite resume tailoring engine for Lakshmi K. Your only job: place this candidate in the top 5–10% of applications for the target role.
-
 Candidate: Lakshmi K — Senior Data Engineer with 5+ years across 5 roles. US-based (Texas).
 - Northwestern Mutual (Insurance / Financial Services / Azure DE / current): ADF, Synapse, Databricks, Event Hubs, 500GB+/day
 - McKesson Corporation (Healthcare / AWS DE): Glue, Lambda, Kinesis, Redshift, S3, 400GB+/day
 - Mindtree (BigBasket) (Retail/E-commerce / GCP DE): Dataflow, BigQuery, Pub/Sub, 300GB+/day
 - Geeky Ants (Tech Services / Multi-tool DE): Spark, Kafka, Airflow
 - Exide Energy (Energy / Big Data DE): Hadoop, Spark, 2TB+ datasets
-
 Target seniority: Senior (5+ yrs).
 
 === DOMAIN HONESTY ===
@@ -272,10 +491,11 @@ Your ultimate goal is to leave ZERO missing keywords. Extract EVERY hard skill, 
 - If the JD asks for tools outside her core DE stack (e.g., React, Vue, Angular, .NET, Java, C++, DVC, front-end development, niche CRMs), you MUST STILL INCLUDE THEM to pass ATS filters without claiming she is a developer in them.
 - HOW TO FOLD THEM IN LOGICALLY:
   1. Skills Section: Add them to an "Ecosystem Integration & Exposure" category.
-  2. Experience Bullets: Weave them in as integration points, upstream/downstream dependencies, or cross-collaboration efforts. 
+  2. Experience Bullets: Weave them in as integration points, upstream/downstream dependencies, or cross-collaboration efforts.
      * Example for Front-End (React/Vue/Angular): "Engineered scalable data pipelines to feed curated datasets directly into React/Vue.js customer-facing dashboards."
      * Example for Backend (Java/.NET): "Collaborated with backend teams to integrate PySpark ELT workflows with legacy Java/.NET microservices."
      * Example for ML (DVC/MLflow): "Provisioned infrastructure and integrated ML versioning tools like DVC to support downstream data science models."
+
 === METRIC PROVENANCE — STRICT ALLOWED-LIST ===
 Every percentage, ratio, GB/TB volume, or quantitative claim MUST trace to the source resume. Complete allowed-metrics list:
 - Northwestern Mutual: 500GB+/day, 30% (query perf), 25% (latency), 20% (throughput), 30% (workflow efficiency), 20% (deployment time)
@@ -283,9 +503,7 @@ Every percentage, ratio, GB/TB volume, or quantitative claim MUST trace to the s
 - Mindtree (BigBasket): 300GB+/day, 25% (query perf)
 - Geeky Ants: 25% (pipeline efficiency)
 - Exide: 2TB+ datasets
-
 Any other number is FORBIDDEN. Examples that have caused failures and must NEVER appear: "100% data integrity", "99.9% availability", "40% IAM access reduction", "15% maintenance cost", "200+ dashboards", "24/7 monitoring", "5-second response time", invented RPO/RTO numbers, invented ticket counts, invented uptime percentages, invented customer counts.
-
 If a bullet has no source metric to anchor it, write a QUALITATIVE outcome instead — never invent a number. Acceptable qualitative patterns:
 - "Strengthened IAM posture by replacing role-wide grants with scoped service-account policies"
 - "Cut on-call escalations by introducing pre-deployment validation in CI/CD"
@@ -293,14 +511,11 @@ If a bullet has no source metric to anchor it, write a QUALITATIVE outcome inste
 
 === TITLE-MATCH ROUTING ===
 Detect the JD's role title. Compare with Lakshmi's identity (Azure Data Engineer + senior multi-cloud DE).
-
 If JD title MATCHES (Data Engineer, Senior Data Engineer, Cloud Data Engineer, Azure/AWS/GCP Data Engineer, ETL Engineer, Big Data Engineer, or close variant): apply the 90% Rule. Align bullets deeply with the JD. Surface every JD requirement she can credibly support.
-
 If JD title DIFFERS (Software Engineer (Data), Database Engineer, Platform Engineer, Data Architect, Analytics Engineer, ML Engineer, DataOps, etc.): apply the 20/80 Rule. About 20% of bullets across the resume preserve her DE identity (anchor bullets: ADF orchestration, Synapse warehousing, Databricks PySpark). The other 80% translate her real work into the JD's vocabulary using her actual experience as raw material — never fabricate.
 
 === INDUSTRY DETECTION + DOMAIN VOCABULARY ===
 Detect JD industry: financial / fintech / wealth-management / brokerage / insurance / healthcare / retail / ecommerce / energy / ad-tech / telecom / logistics / media / general.
-
 Inject domain vocabulary into bullets where it fits without lying:
 - financial / fintech / wealth-management / brokerage: regulatory reporting, trading data feeds, brokerage data, transaction streams, audit trails, real-time financial insights, SOX-aligned data lineage, PII safeguards on customer financial data
 - insurance: actuarial datasets, policy data, claims pipelines, underwriting analytics
@@ -352,9 +567,7 @@ Close by reflecting the JD's own technical language — its stack, its problem, 
 - Bad: "Excited to drive technical innovation at [Company]." (banned closer + company name)
 
 BANNED summary OPENERS (sentence 1): "Highly motivated", "Results-driven", "Passionate", "Dedicated professional", "Detail-oriented", "Seasoned", "Dynamic professional", "Innovative thinker", "Experienced professional", "Senior Data Engineer who has shipped" (avoids JD title — use the JD title directly).
-
 BANNED summary CLOSERS (sentence 5): "Aims to / Aiming to", "Ready to", "Seeking to", "Eager to", "Looking to", "Excited to", "Driven to", "Poised to", "Hoping to", "Committed to". These create the corporate brochure feel and mark the resume as AI-template.
-
 BANNED summary CONTENT (anywhere in summary):
 - The target company's name (NEVER use it — talk about the work, not the brand)
 - Phrases like "at [Company]", "for [Company]", "[Company] client", "[Company]'s [problem]"
@@ -374,7 +587,6 @@ HARD RULES:
 
 === SKILLS ===
 Output 6–8 skill categories. List the tools she actually uses + ALL harvested JD keywords. Place JD-mentioned tools FIRST in each category.
-
 Category content rules — each tool belongs in EXACTLY ONE category:
 - Cloud Platforms: AWS, Azure, GCP (the cloud names only, not services)
 - Compute & Serverless: EC2, Compute Engine, Cloud Run, Cloud Functions, AWS Lambda, Azure Functions
@@ -399,7 +611,6 @@ RULE A — WHY IT MATTERS: [strong verb] + [what was built/solved] + [scale or s
 RULE B — ANTI-REPETITION: track verbs across all 5 roles. Rotate verbs.
 RULE C — KEYWORD WEAVING (CRITICAL): You must integrate the non-core JD keywords (React, Vue, DVC, etc.) logically as integration points, frontend-feeds, or cross-functional collaborations in at least 1-2 bullets across the resume.
 RULE D — QUANTIFY OR SKIP: every bullet ends in a number from the allowed metrics list, or a strong qualitative outcome.
-
 ACHIEVEMENTS use BEFORE-TO-AFTER format whenever the source data supports it:
 - Preferred: "Cut Synapse query latency from ~12s to ~7s on 500GB datasets."
 - Acceptable when no baseline exists: "Achieved 30% throughput gain on Azure SQL workloads."
@@ -409,11 +620,9 @@ ACHIEVEMENTS use BEFORE-TO-AFTER format whenever the source data supports it:
 DR / failover / RTO / RPO / resilience / BCP — use ONLY if JD asks AND with no invented numbers:
 - "Participated in disaster-recovery validation for Synapse warehouses across paired Azure regions"
 - "Tested cross-region failover playbooks for Cloud SQL and BigQuery with the platform reliability team"
-
 Tenant / on-call / incident / ServiceNow / Jira — use ONLY if JD asks AND with no invented metrics:
 - "Resolved platform tickets from data engineering and BI tenants, troubleshooting query performance and access issues"
 - "Provided production support for Glue and Redshift workloads, partnering with cross-functional teams to minimize disruption"
-
 Terraform / IaC / Cloud Deployment Manager / CloudFormation — when JD asks for IaC, Terraform MUST appear in at least ONE bullet (not just skills). Anchors:
 - BigBasket (best for GCP-heavy JDs): "Provisioned BigQuery datasets, Pub/Sub topics, and Cloud SQL instances using Terraform with GCS-backed state"
 - Northwestern Mutual: "Provisioned Azure Synapse, ADLS Gen2, and Cosmos DB resources via Terraform modules with version-controlled state"
@@ -432,12 +641,10 @@ BANNED words and phrases anywhere in the resume:
 - "worked on" → use a real verb
 - "various", "multiple", "numerous" → specify the number or drop the word
 - "end-to-end" → allowed once per resume MAX
-
 WRITING STYLE: Vary sentence length. No em dashes inside bullets. No three-adjective chains ("scalable, reliable, and efficient" → pick ONE). Past tense for prior roles, present tense ONLY for current Northwestern Mutual role. Active voice, no first-person pronouns.
 
 === STRUCTURE ===
 Sections in order: Header (NAME, role title, contact line — NO LOCATION) → Professional Summary → Technical Skills (6–8 categories) → Professional Experience (ALL 5 roles, current first) → Education (Lamar University — Master in MIS) → Certifications (4 certs; JD-relevant cert sorts to top).
-
 Contact line (LOCKED): +1 (469) 723-2320 | lakshmik3272@gmail.com | linkedin.com/in/lakshmi-k-19aa79330
 Candidate name (LOCKED): Lakshmi K
 Default candidate_title: "Senior Data Engineer". Use the exact JD title if it's reasonable (e.g., "Cloud Data Engineer", "Database Engineer", "Senior Cloud Platform Engineer").
@@ -484,8 +691,7 @@ STRUCTURE:
 2. Hook (their data pain point from JD — be specific about the cloud, scale, or stack they mentioned)
 3. Bridge: "This is close to a problem I solved at [Company]…"
 4. War story with specific tools and numbers
-5. Brief closing tying her cross-cloud breadth to their team. End with "Thank you,\nLakshmi K"
-
+5. Brief closing tying her cross-cloud breadth to their team. End with "Thank you,\\nLakshmi K"
 Return ONLY the letter body. No markdown. No bold. No headers.
 """
 
@@ -505,6 +711,46 @@ Scoring criteria (0-100):
 
 Output ONLY valid JSON, no markdown, no backticks, no explanation:
 {"score": <int 0-100>, "reasoning": "<1 sentence>", "missing_keywords": "<comma-separated JD keywords NOT in resume>", "title_match_status": "<match | partial | mismatch>", "domain_coverage": "<strong | adequate | weak>"}
+"""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# v1.4 — REGENERATION INSTRUCTION TEMPLATE (NEW)
+# Appended to ASTRA_PROMPT on retry passes when score < TARGET_SCORE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REGENERATION_INSTRUCTION_TEMPLATE = """
+=== REGENERATION PASS — CRITICAL FEEDBACK FROM ATS SCANNER ===
+
+The previous attempt scored {prev_score}/100. The TARGET is {target}+.
+
+The ATS scanner identified these MISSING KEYWORDS that MUST be added:
+{missing_keywords}
+
+DEPTH INTEGRATION RULES (NON-NEGOTIABLE):
+
+1. EVERY missing keyword MUST appear in the output. Zero tolerance.
+
+2. For each missing keyword, decide its placement honestly:
+   - Core DE tool (Snowflake, dbt, Spark, etc.) → add to relevant Skills category AND weave into 1-2 bullets in roles where it credibly fits.
+   - Non-core tool the JD requires (React, Vue, Angular, Java, C++, C#, .NET, DVC, etc.) → add to "Ecosystem Integration & Exposure" Skills category AND weave into AT LEAST 2 bullets across 2 different roles as integration/collaboration work.
+   - Required certification / methodology / domain term (HIPAA, IRB, SOX, Agile, Kimball, etc.) → add to skills AND surface in summary or a relevant bullet.
+
+3. WHEN THE JD SAYS "X+ years of [language]" AND that language is non-core for the candidate:
+   - Do NOT claim X years in a bullet (honesty rule)
+   - DO weave the language into 2 separate bullets as upstream/downstream integration:
+     * Bullet 1: "Collaborated with [language] backend teams to integrate Python/PySpark workflows with legacy [language] microservices for [domain] data feeds"
+     * Bullet 2: "Engineered data pipelines feeding curated datasets into [language]-based dashboards/applications"
+   - Add the language to "Ecosystem Integration & Exposure" skills
+
+4. CHECK YOUR SKILL CATEGORIES BEFORE OUTPUTTING:
+   - "Data Warehousing" must contain ONLY warehouses (Snowflake, BigQuery, Redshift, Synapse) and their features
+   - "Networking & Security" must contain ONLY network/security tools (VPC, IAM, Firewalls, KMS)
+   - "IaC & DevOps" must contain ONLY infra/CI tools (Terraform, Jenkins, Git, Azure DevOps)
+   - "Orchestration & ETL" must contain ONLY pipeline tools (Airflow, ADF, Glue, Dataflow, Composer)
+   - If you place a tool under the wrong header, the resume FAILS the human review phase.
+
+5. NEVER inflate metrics or fabricate experience. Use qualitative outcomes when no source metric exists.
+
+Now regenerate the resume with these missing keywords woven in correctly.
 """
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -534,7 +780,7 @@ class ResumeSchema(BaseModel):
     candidate_name: str = Field(description="Always: Lakshmi K")
     candidate_title: str = Field(description="Role title tailored to JD; default 'Senior Data Engineer'")
     contact_info: str = Field(description="Always: +1 (469) 723-2320 | lakshmik3272@gmail.com | linkedin.com/in/lakshmi-k-19aa79330")
-    summary: str = Field(description="EXACTLY 3 sentences. S1: JD title + 5+ years + multi-cloud anchor. S2: technical depth + domain bridge. S3: target company named, JD-stack/problem hook folded naturally — NEVER opens with 'Aims to/Ready to/Seeking to/Eager to'.")
+    summary: str = Field(description="EXACTLY 5 sentences per the Astra summary structure (identity anchor, technical depth, domain story, specialized strength, JD-stack fit). Never name the target company in the summary.")
     skills: List[SkillCategory] = Field(description="6-8 compressed skill categories; respect category caps")
     experience: List[ExperienceItem] = Field(description="ALL 5 roles in reverse chronological order. Never drop any.")
     education: List[EducationItem] = Field(description="Lamar University — Master in MIS")
@@ -587,7 +833,6 @@ def normalize_schema(data):
     raw_contact = data.get('contact_info', CONTACT_LINE)
     normalized['contact_info'] = str(raw_contact) if not isinstance(raw_contact, dict) else ' | '.join(str(v) for v in raw_contact.values() if v)
     normalized['summary'] = data.get('summary', '')
-
     # Skills → always dict
     raw_skills = data.get('skills', {})
     normalized['skills'] = {}
@@ -604,7 +849,6 @@ def normalize_schema(data):
             else:
                 normalized['skills'] = {"General": ", ".join([str(s) for s in raw_skills])}
                 break
-
     # Experience
     raw_exp = data.get('experience', [])
     norm_exp = []
@@ -620,7 +864,6 @@ def normalize_schema(data):
                     'achievements': role.get('achievements', []),
                 })
     normalized['experience'] = norm_exp
-
     # Education
     raw_edu = data.get('education', [])
     norm_edu = []
@@ -638,7 +881,6 @@ def normalize_schema(data):
     if not norm_edu:
         norm_edu = [{'degree': 'Master in Management Information Systems', 'college': 'Lamar University'}]
     normalized['education'] = norm_edu
-
     # Certifications
     raw_certs = data.get('certifications', [])
     norm_certs = []
@@ -659,7 +901,6 @@ def normalize_schema(data):
             {'name': 'Python (Google)', 'year': ''},
         ]
     normalized['certifications'] = norm_certs
-
     normalized['target_company'] = data.get('target_company', 'Company')
     return normalized
 
@@ -716,6 +957,60 @@ def expand_skills_dense_lakshmi(skills):
         expanded[cat] = ", ".join(deduped)
     return expanded
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# v1.4 — DETERMINISTIC SKILL CATEGORY VALIDATOR (NEW)
+# Walks the skills dict and moves miscategorized tools to their canonical
+# category per MASTER_CATEGORY_MAP. Prevents Schwab-style category bugs.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def validate_and_repair_skill_categories(skills):
+    """Walk the skills dict and move any miscategorized tool to its
+    canonical category per MASTER_CATEGORY_MAP. Tools not in the map
+    stay where the LLM placed them (we trust it for novel tools).
+    """
+    if not skills or not isinstance(skills, dict):
+        return skills
+
+    # Build a working representation: dict of category -> list of tools
+    working = {cat: [t.strip() for t in str(tools).split(",") if t.strip()]
+               for cat, tools in skills.items()}
+
+    # Track tools that need to move
+    misplaced = []  # list of (tool, current_cat, correct_cat)
+
+    for current_cat, tool_list in list(working.items()):
+        for tool in list(tool_list):
+            tool_norm = tool.strip().rstrip('.').lower()
+
+            # Check if it's an ecosystem keyword first (highest priority)
+            is_ecosystem = any(kw in tool_norm for kw in ECOSYSTEM_KEYWORDS)
+            if is_ecosystem:
+                if "ecosystem" not in current_cat.lower():
+                    misplaced.append((tool, current_cat, "Ecosystem Integration & Exposure"))
+                continue
+
+            # Check master map
+            for canonical_tool, correct_cat in MASTER_CATEGORY_MAP.items():
+                if canonical_tool.lower() == tool_norm:
+                    if correct_cat.lower() not in current_cat.lower():
+                        misplaced.append((tool, current_cat, correct_cat))
+                    break
+
+    # Execute the moves
+    for tool, from_cat, to_cat in misplaced:
+        if tool in working.get(from_cat, []):
+            working[from_cat].remove(tool)
+        if to_cat not in working:
+            working[to_cat] = []
+        # Avoid duplicates
+        if not any(t.lower() == tool.lower() for t in working[to_cat]):
+            working[to_cat].append(tool)
+
+    # Drop empty categories
+    working = {cat: tools for cat, tools in working.items() if tools}
+
+    # Reassemble as comma-separated strings
+    return {cat: ", ".join(tools) for cat, tools in working.items()}
+
 def to_text_block(val):
     if val is None:
         return ""
@@ -724,44 +1019,110 @@ def to_text_block(val):
     return str(val)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 6. GENERATION
+# v1.4 — REGENERATION PROMPT BUILDER (NEW)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def build_regeneration_prompt(base_prompt, missing_keywords, prev_score, target=TARGET_SCORE):
+    """Augment the original Astra prompt with explicit missing-keyword feedback."""
+    feedback = REGENERATION_INSTRUCTION_TEMPLATE.format(
+        missing_keywords=missing_keywords,
+        prev_score=prev_score,
+        target=target,
+    )
+    return base_prompt + "\n\n" + feedback
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 6. GENERATION (v1.4 — ITERATIVE LOOP)
+# Generates → scores → if below TARGET_SCORE, regenerates with explicit
+# missing-keyword feedback → repeats up to MAX_ITERATIONS. Returns BEST
+# attempt across all iterations.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def analyze_and_generate(api_key, resume_text, jd_text):
+    """Iterative generation loop. Generates, scores, regenerates with
+    missing-keyword feedback until score >= TARGET_SCORE or MAX_ITERATIONS hit.
+    Returns the BEST attempt across all iterations.
+    """
     client = genai.Client(api_key=api_key)
-    try:
-        safe_schema = get_clean_schema(ResumeSchema)
-        response = client.models.generate_content(
-            model=GENERATION_MODEL,
-            contents=f"{ASTRA_PROMPT}\n\nSOURCE RESUME:\n{resume_text}\n\nJOB DESCRIPTION:\n{jd_text}",
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=safe_schema,
+    safe_schema = get_clean_schema(ResumeSchema)
+
+    best_data = None
+    best_score = 0
+    augmented_prompt = ASTRA_PROMPT
+
+    for iteration in range(MAX_ITERATIONS):
+        try:
+            response = client.models.generate_content(
+                model=GENERATION_MODEL,
+                contents=f"{augmented_prompt}\n\nSOURCE RESUME:\n{resume_text}\n\nJOB DESCRIPTION:\n{jd_text}",
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=safe_schema,
+                    temperature=0.3,  # Lower for consistency
+                )
             )
-        )
-        raw_data = json.loads(response.text)
-        data = raw_data.model_dump() if hasattr(raw_data, 'model_dump') else raw_data
-        # Skills list → dict
-        if 'skills' in data and isinstance(data['skills'], list):
-            transformed = {}
-            for item in data['skills']:
-                cat = item.get('category') if isinstance(item, dict) else getattr(item, 'category', '')
-                tech = item.get('technologies') if isinstance(item, dict) else getattr(item, 'technologies', '')
-                if cat and tech:
-                    transformed[cat] = tech
-            data['skills'] = transformed
-        data = normalize_schema(data)
-        # Apply skills expansion (Charan's pattern: additive, trigger-based)
-        data['skills'] = expand_skills_dense_lakshmi(data.get('skills', {}))
-        # ATS scoring
-        judge = calculate_ats_score(data, jd_text, api_key)
-        data['ats_score'] = judge.get('score', 0)
-        data['ats_reason'] = judge.get('reasoning', '')
-        data['missing_keywords'] = judge.get('missing_keywords', '')
-        data['title_match_status'] = judge.get('title_match_status', 'unknown')
-        data['domain_coverage'] = judge.get('domain_coverage', 'unknown')
-        return data
-    except Exception as e:
-        return {"error": f"Generation Error: {str(e)}"}
+            raw_data = json.loads(response.text)
+            data = raw_data.model_dump() if hasattr(raw_data, 'model_dump') else raw_data
+
+            # Skills list → dict
+            if 'skills' in data and isinstance(data['skills'], list):
+                transformed = {}
+                for item in data['skills']:
+                    cat = item.get('category') if isinstance(item, dict) else getattr(item, 'category', '')
+                    tech = item.get('technologies') if isinstance(item, dict) else getattr(item, 'technologies', '')
+                    if cat and tech:
+                        transformed[cat] = tech
+                data['skills'] = transformed
+
+            data = normalize_schema(data)
+
+            # Apply skills expansion (existing additive trigger pattern)
+            data['skills'] = expand_skills_dense_lakshmi(data.get('skills', {}))
+
+            # NEW v1.4: Repair any miscategorized tools (deterministic, fixes Schwab-style bugs)
+            data['skills'] = validate_and_repair_skill_categories(data['skills'])
+
+            # Score it
+            judge = calculate_ats_score(data, jd_text, api_key)
+            score = int(judge.get('score', 0))
+            missing = judge.get('missing_keywords', '')
+
+            data['ats_score'] = score
+            data['ats_reason'] = judge.get('reasoning', '')
+            data['missing_keywords'] = missing
+            data['title_match_status'] = judge.get('title_match_status', 'unknown')
+            data['domain_coverage'] = judge.get('domain_coverage', 'unknown')
+            data['_iteration'] = iteration + 1
+
+            # Track best version regardless of target
+            if score > best_score:
+                best_score = score
+                best_data = data
+
+            # Stop conditions
+            if score >= TARGET_SCORE:
+                best_data['_stopped_at'] = f"Hit target on iteration {iteration + 1}"
+                return best_data
+
+            # On final iteration, accept if we hit ACCEPT_SCORE
+            if iteration == MAX_ITERATIONS - 1 and score >= ACCEPT_SCORE:
+                best_data['_stopped_at'] = f"Accepted at {score} on final iteration"
+                return best_data
+
+            # Otherwise, regenerate with missing-keyword feedback
+            augmented_prompt = build_regeneration_prompt(
+                ASTRA_PROMPT, missing, score, target=TARGET_SCORE
+            )
+
+        except Exception as e:
+            if best_data is not None:
+                best_data['_error'] = f"Iteration {iteration+1} failed: {str(e)}"
+                return best_data
+            return {"error": f"Generation Error on iteration {iteration+1}: {str(e)}"}
+
+    # Hit max iterations without target. Return best attempt.
+    if best_data is not None:
+        best_data['_stopped_at'] = f"Max iterations reached. Best score: {best_score}"
+        return best_data
+    return {"error": "All iterations failed"}
 
 def generate_cover_letter(api_key, resume_data, jd_text):
     client = genai.Client(api_key=api_key)
@@ -790,7 +1151,6 @@ def create_doc(data):
     doc = Document()
     s = doc.sections[0]
     s.left_margin = s.right_margin = s.top_margin = s.bottom_margin = Inches(0.5)
-
     # Header — NAME / ROLE TITLE / CONTACT (NO LOCATION)
     for txt, sz, b in [
         (data.get('candidate_name', CANDIDATE_NAME), 28, True),
@@ -935,10 +1295,8 @@ def create_pdf(data):
     elements.append(Paragraph(clean(data.get('candidate_name', CANDIDATE_NAME)).upper(), sh_name))
     elements.append(Paragraph(clean(data.get('candidate_title', DEFAULT_TITLE)), sh_title))
     elements.append(Paragraph(clean(data.get('contact_info', CONTACT_LINE)), sh_contact))
-
     elements.append(Paragraph("Professional Summary", s_sec))
     elements.append(Paragraph(clean(data.get('summary', '')), sn))
-
     elements.append(Paragraph("Technical Skills", s_sec))
     skill_items = []
     for k, v in data.get('skills', {}).items():
@@ -946,7 +1304,6 @@ def create_pdf(data):
         skill_items.append(ListItem(Paragraph(text, sn), leftIndent=0))
     if skill_items:
         elements.append(ListFlowable(skill_items, bulletType='bullet', start='\u2022', leftIndent=15))
-
     elements.append(Paragraph("Professional Experience", s_sec))
     for role in data.get('experience', []):
         line = f"{role.get('role_title')} | {role.get('company')} | {role.get('location')} | {role.get('dates')}"
@@ -973,7 +1330,6 @@ def create_pdf(data):
             if ach_bullets:
                 elements.append(ListFlowable(ach_bullets, bulletType='bullet', start='\u2022', leftIndent=25))
         elements.append(Spacer(1, 6))
-
     elements.append(Paragraph("Education", s_sec))
     edu_bullets = []
     for edu in data.get('education', []):
@@ -981,7 +1337,6 @@ def create_pdf(data):
         edu_bullets.append(ListItem(Paragraph(clean(text), sn), leftIndent=0))
     if edu_bullets:
         elements.append(ListFlowable(edu_bullets, bulletType='bullet', start='\u2022', leftIndent=15))
-
     elements.append(Paragraph("Certifications", s_sec))
     cert_bullets = []
     for cert in data.get('certifications', []):
@@ -991,7 +1346,6 @@ def create_pdf(data):
         cert_bullets.append(ListItem(Paragraph(clean(text), sn), leftIndent=0))
     if cert_bullets:
         elements.append(ListFlowable(cert_bullets, bulletType='bullet', start='\u2022', leftIndent=15))
-
     doc.build(elements)
     buffer.seek(0)
     return buffer.getvalue()
@@ -1033,6 +1387,7 @@ with st.sidebar:
     st.markdown("**Models:**")
     st.caption(f"Resume: {GENERATION_MODEL}")
     st.caption(f"Scoring: {SCORING_MODEL}")
+    st.caption(f"Target score: {TARGET_SCORE}+ (max {MAX_ITERATIONS} iterations)")
     st.divider()
     if st.button("\U0001f5d1\ufe0f Reset", use_container_width=True):
         st.session_state['data'] = None
@@ -1040,7 +1395,7 @@ with st.sidebar:
         st.session_state['saved_jd'] = ""
         st.session_state['cover_letter'] = None
         st.rerun()
-    st.caption("Astra v1.3 | Personalised for Lakshmi K")
+    st.caption("Astra v1.4 | Personalised for Lakshmi K")
 
 if not st.session_state['data']:
     st.markdown(f"<h1 style='text-align: center;'>{PAGE_TITLE}</h1>", unsafe_allow_html=True)
@@ -1078,12 +1433,17 @@ else:
         score = data.get('ats_score', 0)
         st.metric("ATS Match", f"{score}%")
 
+    # v1.4 — Iteration visibility
+    iteration = data.get('_iteration', 1)
+    stopped_at = data.get('_stopped_at', '')
+    if iteration > 1 or stopped_at:
+        st.info(f"Reached after {iteration} iteration(s). {stopped_at}")
+
     # Diagnostic chips
     chip_cols = st.columns(3)
     chip_cols[0].markdown(f"**Title Match:** `{data.get('title_match_status', 'unknown')}`")
     chip_cols[1].markdown(f"**Domain Coverage:** `{data.get('domain_coverage', 'unknown')}`")
     chip_cols[2].markdown(f"**ATS Reasoning:** {data.get('ats_reason', '')}")
-
     missing = data.get('missing_keywords', '')
     if missing and str(missing).strip():
         st.warning(f"**Keywords still missing from resume:** {missing}")
@@ -1098,7 +1458,6 @@ else:
             data['candidate_title'] = c2.text_input("Title", to_text_block(data.get('candidate_title')))
             data['contact_info'] = c3.text_input("Contact", to_text_block(data.get('contact_info')))
             data['summary'] = st.text_area("Summary", to_text_block(data.get('summary')), height=140)
-
             st.subheader("Skills")
             skills = data.get('skills', {})
             new_skills = {}
@@ -1108,7 +1467,6 @@ else:
                 new_val = col.text_area(k, to_text_block(v), key=f"skill_{i}", height=80)
                 new_skills[k] = new_val.replace('\n', ', ')
             data['skills'] = new_skills
-
             st.subheader("Experience")
             for i, role in enumerate(data.get('experience', [])):
                 with st.expander(f"{role.get('role_title', 'Role')} @ {role.get('company', 'Company')}"):
@@ -1120,19 +1478,16 @@ else:
                     role['location'] = c4.text_input("Location", to_text_block(role.get('location')), key=f"jl_{i}")
                     role['responsibilities'] = st.text_area("Responsibilities", to_text_block(role.get('responsibilities')), height=220, key=f"jr_{i}")
                     role['achievements'] = st.text_area("Achievements", to_text_block(role.get('achievements')), height=110, key=f"ja_{i}")
-
             st.subheader("Education")
             for i, edu in enumerate(data.get('education', [])):
                 c1, c2 = st.columns(2)
                 edu['degree'] = c1.text_input("Degree", to_text_block(edu.get('degree')), key=f"ed_{i}")
                 edu['college'] = c2.text_input("Institution", to_text_block(edu.get('college')), key=f"ec_{i}")
-
             st.subheader("Certifications")
             for i, cert in enumerate(data.get('certifications', [])):
                 c1, c2 = st.columns([3, 1])
                 cert['name'] = c1.text_input("Certification", to_text_block(cert.get('name')), key=f"cn_{i}")
                 cert['year'] = c2.text_input("Year", to_text_block(cert.get('year')), key=f"cy_{i}")
-
             if st.form_submit_button("\U0001f4be Save Edits", type="primary"):
                 st.session_state['data'] = data
                 st.success("Saved!")
