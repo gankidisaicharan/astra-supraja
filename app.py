@@ -2300,7 +2300,49 @@ st.markdown("""
     .block-container {padding-top: 1.5rem;}
     div.stButton > button:first-child {border-radius: 6px; font-weight: 600;}
     div[data-testid="stMetricValue"] {font-size: 1.6rem;}
-    .axis-box {padding: 12px; border-radius: 8px; border: 1px solid #e0e0e0; margin: 4px 0;}
+
+    /* Theme-aware containers. Uses Streamlit's CSS variables so the
+       same code works in both light and dark mode. var(--text-color)
+       is white in dark mode and dark gray in light mode; ditto for
+       backgrounds. Previously hardcoded colours caused white-on-white
+       in dark theme.
+    */
+    .axis-box {
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(128,128,128,0.25);
+        background: var(--secondary-background-color);
+        margin: 4px 0;
+    }
+    .axis-box-label {
+        opacity: 0.7;
+        font-size: 0.85rem;
+        color: var(--text-color);
+    }
+    .axis-box-score {
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+    .axis-box-caption {
+        opacity: 0.6;
+        font-size: 0.78rem;
+        margin-top: 4px;
+        color: var(--text-color);
+    }
+    .match-banner {
+        padding: 14px 18px;
+        border-radius: 10px;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128,128,128,0.2);
+        color: var(--text-color);
+        margin: 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .match-banner-emoji { font-size: 1.8rem; }
+    .match-banner-label { font-size: 1.2rem; font-weight: 600; flex: 1; }
+    .match-banner-pct { opacity: 0.6; font-size: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2411,6 +2453,20 @@ if st.session_state["step"] == 1:
 # ═══════════════════════════════════════════════════════════════════
 elif st.session_state["step"] == 2:
     st.caption("Step 2 of 3: choose how much Astra should rewrite.")
+
+    # If the user came here via Re-optimise, the force_keywords field is
+    # already populated with the missing-keyword list. Show a banner so
+    # they understand what changed, and expand the Advanced section by
+    # default so the list is visible without an extra click.
+    is_reopt = bool(st.session_state.get("force_keywords", "").strip())
+    if is_reopt:
+        fk_count = len([k for k in st.session_state["force_keywords"].split(",") if k.strip()])
+        st.info(
+            f"🔄 **Re-optimising** — {fk_count} keyword(s) loaded into Advanced "
+            f"settings below. Edit the list if you want, pick a preset, then re-generate. "
+            f"Consider switching to **Maximize match** for the second pass."
+        )
+
     st.markdown("### How aggressively should Astra rewrite?")
 
     preset = st.radio(
@@ -2424,7 +2480,7 @@ elif st.session_state["step"] == 2:
     st.session_state["preset"] = preset
 
     st.divider()
-    with st.expander("⚙ Advanced (optional)", expanded=False):
+    with st.expander("⚙ Advanced (optional)", expanded=is_reopt):
         st.caption(
             "If you notice a specific JD keyword that Astra keeps missing "
             "(like 'Infrastructure-as-Code' or a niche tool), force it in here."
@@ -2490,29 +2546,66 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
     scores = data["scores"]
 
     # ─── Top bar ───
-    tb1, tb2, tb3 = st.columns([3, 2, 1])
+    tb1, tb2, tb3 = st.columns([3, 1.3, 1])
     with tb1:
         st.markdown(f"## 🎯 Target: {data['target_company']}")
         st.caption(f"Tailored title: **{data['candidate_title']}** "
                    f"· Preset: {PRESET_CONFIGS[data['preset_used']]['label']}")
+    with tb2:
+        # Re-optimise — go back to Step 2 with missing keywords pre-loaded
+        # into the Advanced force-include field. One click to perfect the
+        # next pass.
+        missing_for_reopt = scores.get("keywords", {}).get("missing", []) or []
+        reopt_label = (
+            f"🔄 Re-optimise ({len(missing_for_reopt)} missing)"
+            if missing_for_reopt
+            else "🔄 Re-optimise"
+        )
+        if st.button(reopt_label, use_container_width=True,
+                     help="Goes back to the preset screen with all missing "
+                          "JD keywords pre-loaded into Advanced settings. "
+                          "Edit the list, then re-generate."):
+            # Pre-populate force_keywords from current missing list.
+            # Union with whatever the user already had so we don't drop
+            # their previous additions.
+            existing = [
+                k.strip() for k in
+                st.session_state.get("force_keywords", "").split(",")
+                if k.strip()
+            ]
+            existing_lower = {k.lower() for k in existing}
+            for mk in missing_for_reopt:
+                if mk.lower() not in existing_lower:
+                    existing.append(mk)
+                    existing_lower.add(mk.lower())
+            st.session_state["force_keywords"] = ", ".join(existing)
+            # Keep the JD and base resume, drop the current output
+            st.session_state["tailored"] = None
+            st.session_state["ats_score"] = None
+            st.session_state["cover_letter"] = None
+            st.session_state["step"] = 2
+            st.rerun()
     with tb3:
-        if st.button("New JD", use_container_width=True):
+        if st.button("New JD", use_container_width=True,
+                     help="Clear everything and start with a different JD."):
             st.session_state["tailored"] = None
             st.session_state["saved_jd"] = ""
             st.session_state["ats_score"] = None
             st.session_state["cover_letter"] = None
+            st.session_state["force_keywords"] = ""
             st.session_state["step"] = 1
             st.rerun()
 
     # ─── Overall match (3-layer: emoji + label + percentage) ───
+    # Now uses var(--secondary-background-color) and var(--text-color)
+    # via the .match-banner class — readable in both light and dark.
     overall = scores["overall"]
     emoji, label = overall_match_label(overall)
     st.markdown(
-        f"<div style='padding: 14px; border-radius: 10px; "
-        f"background: #f7f7f9; margin: 8px 0;'>"
-        f"<span style='font-size: 1.8rem;'>{emoji}</span> "
-        f"<span style='font-size: 1.3rem; font-weight: 600;'>{label}</span> "
-        f"<span style='color: #888; margin-left: 12px;'>{overall}%</span>"
+        f"<div class='match-banner'>"
+        f"<span class='match-banner-emoji'>{emoji}</span>"
+        f"<span class='match-banner-label'>{label}</span>"
+        f"<span class='match-banner-pct'>{overall}%</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -2523,6 +2616,10 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
         )
 
     # ─── Multi-axis score card ───
+    # Box uses theme-aware bg/border. Only the score NUMBER keeps a
+    # hardcoded colour, because the traffic-light cue (green/amber/red)
+    # is the whole point of that element and reads correctly on both
+    # themes against the box background.
     st.markdown("#### Score breakdown")
     a1, a2, a3, a4 = st.columns(4)
     for col, key, title in [
@@ -2534,16 +2631,16 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
         ax = scores[key]
         score_val = ax["score"]
         if score_val >= 80:
-            color = "#1a7f37"
+            color = "#3fb950"   # bright green, AA contrast on both themes
         elif score_val >= 60:
-            color = "#bf8700"
+            color = "#d29922"   # amber, AA contrast on both
         else:
-            color = "#cf222e"
+            color = "#f85149"   # bright red, AA contrast on both
         col.markdown(
             f"<div class='axis-box'>"
-            f"<div style='color: #555; font-size: 0.85rem;'>{title}</div>"
-            f"<div style='color: {color}; font-size: 1.4rem; font-weight: 600;'>{score_val}/100</div>"
-            f"<div style='color: #666; font-size: 0.78rem; margin-top: 4px;'>{ax['label']}</div>"
+            f"<div class='axis-box-label'>{title}</div>"
+            f"<div class='axis-box-score' style='color: {color};'>{score_val}/100</div>"
+            f"<div class='axis-box-caption'>{ax['label']}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -2678,6 +2775,57 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                             line.strip() for line in new_achs.split("\n") if line.strip()
                         ]
 
+            # ─── Education editor ───
+            # Education is locked at the LOCKED_EDUCATION constant, but
+            # this Edit tab lets the user override for the current
+            # session — useful for adding the BTech detail when it's
+            # finalised, or adding additional credentials.
+            st.markdown("##### Education")
+            st.caption(
+                "Default education comes from LOCKED_EDUCATION constants. "
+                "Edit here for one-off additions (e.g. additional degrees)."
+            )
+            edu_count = max(1, len(data.get("education", [])))
+            new_education = []
+            for i in range(edu_count):
+                e = data["education"][i] if i < len(data["education"]) else {
+                    "degree": "", "institution": "", "dates": ""
+                }
+                with st.expander(
+                    f"Degree {i+1}: {e.get('degree', '(empty)')}",
+                    expanded=False,
+                ):
+                    deg = st.text_input("Degree", e.get("degree", ""), key=f"edu_deg_{i}")
+                    inst = st.text_input("Institution", e.get("institution", ""), key=f"edu_inst_{i}")
+                    dts = st.text_input("Dates", e.get("dates", ""), key=f"edu_dt_{i}")
+                    if deg.strip() and inst.strip():
+                        new_education.append({
+                            "degree": deg.strip(),
+                            "institution": inst.strip(),
+                            "dates": dts.strip(),
+                        })
+            # "Add another degree" toggle — adds a blank slot to the
+            # next render
+            if st.checkbox("➕ Add another degree", key="add_edu_slot"):
+                new_education.append({"degree": "", "institution": "", "dates": ""})
+            data["education"] = new_education
+
+            # ─── Certifications editor ───
+            st.markdown("##### Certifications")
+            st.caption(
+                "One certification per line. Format: "
+                "`Name, Issuer (Date)`"
+            )
+            certs_text = "\n".join(data.get("certifications", []))
+            new_certs_raw = st.text_area(
+                "Certifications", certs_text,
+                height=120, key="certs_edit",
+                label_visibility="collapsed",
+            )
+            data["certifications"] = [
+                line.strip() for line in new_certs_raw.split("\n") if line.strip()
+            ]
+
             if st.form_submit_button("💾 Save edits + re-validate", type="primary"):
                 # Re-apply safety nets after manual edit
                 data["summary"] = fix_banned_openers(
@@ -2706,6 +2854,8 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                         )
                         for a in role["achievements"]
                     ]
+                # Education and certifications stay as-is (no AI sweeps
+                # apply — they're factual fields).
                 # Recompute scoring with edited content
                 burst = burstiness_audit(data["experience"])
                 imp_s, imp_l = compute_impact_axis(data["experience"])
@@ -2859,6 +3009,13 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
             )
         with col_t:
             st.markdown("### Tailored resume")
+            # Build Education & Certifications block (was missing before
+            # — user flagged it).
+            edu_block = "\n".join([
+                f"- {edu['degree']}, {edu['institution']} ({edu['dates']})"
+                for edu in data.get("education", [])
+            ])
+            cert_block = "\n".join([f"- {c}" for c in data.get("certifications", [])])
             tailored_text = (
                 f"# {data['candidate_name']}\n"
                 f"## {data['candidate_title']}\n"
@@ -2867,6 +3024,7 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 f"### Key Skills\n{tailored_skills_block}\n\n"
                 f"### Professional Experience\n"
                 + "\n\n".join(tailored_exp_blocks)
+                + f"\n\n### Education & Certifications\n{edu_block}\n{cert_block}"
             )
             st.text_area(
                 "Tailored", tailored_text, height=600,
