@@ -661,7 +661,7 @@ Goal: take her BASE RESUME and the JOB DESCRIPTION, produce a tailored resume th
 
 ═══ PRESET (drives how aggressively to rewrite) ═══
 
-%(PRESET_INSTRUCTION)s
+{{PRESET_INSTRUCTION}}
 
 ═══ CANDIDATE IDENTITY (LOCKED, DO NOT CHANGE) ═══
 
@@ -746,7 +746,7 @@ Detect the JD title type:
 - Tech / SaaS / Software / Consulting → lived at Geekyants. Claim directly.
 - Anything else → cross-industry transferable. Frame multi-cloud breadth as a feature.
 
-%(DOMAIN_VOCAB)s
+{{DOMAIN_VOCAB}}
 
 ═══ SUMMARY (5 SENTENCES, PRONOUN-FREE, NO EM DASHES) ═══
 
@@ -1651,10 +1651,17 @@ def call_gemini(api_key: str, resume_text: str, jd_text: str,
         return {"error": "Job description is empty."}
 
     preset_cfg = PRESET_CONFIGS.get(preset, PRESET_CONFIGS[DEFAULT_PRESET])
-    prompt = ASTRA_PROMPT_TEMPLATE % {
-        "PRESET_INSTRUCTION": preset_cfg["instruction"],
-        "DOMAIN_VOCAB": DOMAIN_VOCAB_REFERENCE,
-    }
+
+    # Use str.replace instead of %-formatting because the template
+    # contains literal "%" characters (e.g. "40%", "~25%", "20-30%")
+    # that would otherwise be interpreted as printf-style specifiers
+    # and raise TypeError. str.replace is also future-proof: any
+    # percent sign added in a future prompt edit won't break this call.
+    prompt = (
+        ASTRA_PROMPT_TEMPLATE
+        .replace("{{PRESET_INSTRUCTION}}", preset_cfg["instruction"])
+        .replace("{{DOMAIN_VOCAB}}", DOMAIN_VOCAB_REFERENCE)
+    )
 
     client = genai.Client(api_key=api_key)
     safe_schema = get_clean_schema(TailoredOutput)
