@@ -432,7 +432,7 @@ def apply_replacements(text: str) -> str:
 # Also handles "through the implementation of" padding (reviewer's
 # observation on the McKesson achievement bullet).
 MODIFIER_STRIP_PATTERNS = [
-    # Padding phrases — collapse before stripping the modifier itself
+    # ─── Padding phrases (collapse before stripping anything else) ───
     (re.compile(r'\bthrough the implementation of\b', re.IGNORECASE),
      'by implementing'),
     (re.compile(r'\bvia the implementation of\b', re.IGNORECASE),
@@ -440,23 +440,62 @@ MODIFIER_STRIP_PATTERNS = [
     (re.compile(r'\bthe implementation of\b', re.IGNORECASE),
      'implementing'),
     (re.compile(r'\bin order to\b', re.IGNORECASE), 'to'),
+    # Humanizer skill: filler phrases that pad without adding meaning
+    (re.compile(r'\bdue to the fact that\b', re.IGNORECASE), 'because'),
+    (re.compile(r'\bin spite of the fact that\b', re.IGNORECASE), 'although'),
+    (re.compile(r'\bat this point in time\b', re.IGNORECASE), 'now'),
+    (re.compile(r'\bit is important to note that\b', re.IGNORECASE), ''),
+    (re.compile(r'\bit should be noted that\b', re.IGNORECASE), ''),
+    (re.compile(r'\bthe ability to\b', re.IGNORECASE), 'to'),
 
-    # Strip standalone banned modifiers when sandwiched between
-    # spaces. "deploying robust workflow automation" → "deploying
-    # workflow automation". Word-boundary anchored, case-insensitive.
+    # ─── Copula avoidance (humanizer skill #8) ───
+    # "serves as a/the X" → "is a/the X". Resume bullets often use
+    # "serves as the foundation for..." when "is the foundation for..."
+    # is cleaner and more direct.
+    (re.compile(r'\bserves as\b', re.IGNORECASE), 'is'),
+    (re.compile(r'\bstands as\b', re.IGNORECASE), 'is'),
+    (re.compile(r'\bfunctions as\b', re.IGNORECASE), 'is'),
+    (re.compile(r'\bacts as\b', re.IGNORECASE), 'is'),
+
+    # ─── Trailing -ing fluff (humanizer skill #3) ───
+    # "Built X, demonstrating ability to scale" — the trailing clause
+    # is fake depth. Strip from the comma to the end of the sentence.
+    # Limited to verbs that are pretty much always fluff in resume
+    # bullets: demonstrating, showcasing, emphasizing, underscoring,
+    # highlighting, reflecting, symbolizing. Other -ing verbs
+    # ('enabling', 'supporting') often carry real meaning so we leave
+    # them alone.
+    (re.compile(
+        r',\s+(demonstrating|showcasing|emphasizing|underscoring|'
+        r'highlighting|reflecting|symbolizing|cultivating|fostering)\s+'
+        r'[^.!?]*?(?=[.!?]|$)',
+        re.IGNORECASE
+    ), ''),
+
+    # ─── Standalone banned modifiers — sandwiched between spaces ───
+    # "deploying robust workflow automation" → "deploying workflow
+    # automation". Extended with humanizer's promotional/AI words.
     (re.compile(
         r'(?<=\s)('
         r'robust|seamless|innovative|groundbreaking|cutting[- ]edge|'
         r'transformative|vibrant|compelling|crucial|pivotal|intricate|'
-        r'state[- ]of[- ]the[- ]art|best[- ]in[- ]class|world[- ]class'
+        r'state[- ]of[- ]the[- ]art|best[- ]in[- ]class|world[- ]class|'
+        r'vital|indispensable|invaluable|paramount|quintessential|'
+        r'unparalleled|unprecedented'
         r')\s+', re.IGNORECASE), ''),
 
-    # At the very start of a bullet/sentence
+    # ─── At sentence start ───
     (re.compile(
         r'^('
         r'Robust|Seamless|Innovative|Groundbreaking|Cutting[- ]edge|'
-        r'Transformative|Vibrant|Compelling|Crucial|Pivotal|Intricate'
+        r'Transformative|Vibrant|Compelling|Crucial|Pivotal|Intricate|'
+        r'Vital|Indispensable|Invaluable|Paramount'
         r')\s+', re.MULTILINE), ''),
+
+    # ─── Doubled hedging (humanizer skill #23) ───
+    (re.compile(r'\bcould potentially possibly\b', re.IGNORECASE), 'may'),
+    (re.compile(r'\bmight possibly\b', re.IGNORECASE), 'may'),
+    (re.compile(r'\bpotentially possibly\b', re.IGNORECASE), 'possibly'),
 ]
 
 
@@ -868,13 +907,45 @@ BURSTINESS RULES (anti-AI):
 - No more than 2 consecutive bullets start with the same verb.
 - Avoid identical syntactic patterns across consecutive bullets.
 
-═══ ANTI-AI WRITING — BANNED WORDS ═══
+═══ ANTI-AI WRITING — HUMANIZER RULES ═══
 
-NEVER use: delve, leverage, leveraged, leveraging, spearhead, spearheaded, robust, seamless, seamlessly, intricate, harness, harnessed, unlock, unleash, empower, empowered, transformative, groundbreaking, pivotal, cutting-edge, holistic, synergy, foster, fostered, streamline, streamlined, elevate, elevated, paradigm, ever-evolving, tapestry, realm, embark, vibrant, crucial, compelling, testament, navigate the landscape, utilize, utilized, utilizing, showcasing, highlighting, demonstrating, fostering, cultivating, at the forefront of, at the intersection of, passionate about, driven by, committed to excellence, serves as, stands as.
+The single biggest reason resumes get rejected by a human recruiter after passing ATS is "AI tells". Even on Maximize match, every bullet must read like a senior engineer wrote it. The rules below are non-negotiable.
 
-NEVER START a sentence with: Furthermore, Moreover, Additionally, Consequently, In today's, In an era of, It is worth noting.
+BANNED WORDS — never use:
+delve, leverage(d/ing), spearhead(ed), robust, seamless(ly), intricate, harness(ed), unlock, unleash, empower(ed), transformative, groundbreaking, pivotal, cutting-edge, holistic, synergy, foster(ed), streamline(d), elevate(d), paradigm, ever-evolving, tapestry, realm, embark, vibrant, crucial, compelling, testament, navigate the landscape, utilize(d/ing), showcasing, highlighting, demonstrating, emphasizing, underscoring, reflecting, symbolizing, fostering, cultivating, garner, interplay, valuable (as filler), at the forefront of, at the intersection of, passionate about, driven by, committed to excellence, vital, indispensable, invaluable, paramount, unparalleled, unprecedented.
 
-NEVER use EM DASHES (—) anywhere. Use commas, periods, colons, parentheses, or rephrase.
+BANNED SENTENCE OPENERS:
+Furthermore, Moreover, Additionally, Consequently, In today's, In an era of, It is worth noting.
+
+BANNED CONSTRUCTIONS:
+
+1. NO copula avoidance. Use "is" and "are" directly.
+   BAD:  "The pipeline serves as the foundation for analytics."
+   GOOD: "The pipeline is the foundation for analytics."
+   BAD:  "Snowflake stands as the central warehouse."
+   GOOD: "Snowflake is the central warehouse."
+
+2. NO trailing -ing fluff clauses. Bullets often get padded with a comma plus "demonstrating/showcasing/emphasizing X" that adds no real content. Strip them.
+   BAD:  "Built Apache Airflow DAGs, demonstrating ability to scale."
+   GOOD: "Built Apache Airflow DAGs orchestrating 40+ data pipelines."
+   BAD:  "Migrated workloads to Snowflake, showcasing technical leadership."
+   GOOD: "Migrated workloads to Snowflake, cutting batch runtime by 40%."
+
+3. NO rule of three. Resume bullets do not need three-adjective chains or three-item lists for completeness.
+   BAD:  "Built scalable, reliable, and efficient data pipelines."
+   GOOD: "Built data pipelines processing 500GB/day."
+
+4. NO negative parallelism. "Not only X but Y" and "It's not just X, it's Y" are AI tells.
+   BAD:  "Not only built pipelines but also optimized them."
+   GOOD: "Built and optimized data pipelines."
+
+5. NO elegant variation (synonym cycling). If you say "Snowflake warehouse" don't switch to "the data store" two sentences later. Pick one term and stick with it.
+
+6. NO em dashes (—) anywhere. Use commas, periods, colons, parentheses, or rephrase. (Hyphens in compound words and en dashes in date ranges are fine.)
+
+VARY RHYTHM. Mix short punchy bullets (10-14 words) with longer ones (20-26 words). If every bullet is the same length, the resume reads as AI-generated even when the words are fine. Aim for stdev ≥4.0 across bullet word counts.
+
+VARY OPENING VERBS. No single verb (Architected, Built, Designed, Engineered, etc.) should start more than 2 bullets across the entire resume. Rotate aggressively.
 
 ═══ OUTPUT JSON SCHEMA ═══
 
@@ -1735,6 +1806,118 @@ def generate_ready_checklist(overall: int, impact_score: int,
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 17b. JD KEYWORD SCRAPER — separate Flash 3 call, ~$0.003 per JD
+# ═══════════════════════════════════════════════════════════════════
+
+JD_SCRAPE_PROMPT = """You are an ATS keyword extractor for a Senior Data Engineer resume.
+
+Read the job description below and return ONLY valid ATS hard keywords —
+the exact tokens an ATS like Workday Skills Cloud, Greenhouse, or Taleo
+would parse and match against a resume.
+
+VALID (extract these):
+- Tools and platforms: Snowflake, Apache Airflow, Databricks, Kafka, Spark, dbt, AWS Glue, etc.
+- Programming languages: Python, SQL, Scala, T-SQL, PySpark, etc.
+- Cloud services: AWS Lambda, Azure Synapse, GCP BigQuery, etc.
+- Frameworks and methodologies: Kimball, Medallion Architecture, Star Schema, dimensional modeling, etc.
+- Compliance and governance: HIPAA, SOX, GDPR, PCI DSS, Data Contracts, RBAC, lineage, etc.
+- Certifications named in JD: AWS DEA-C01, Azure DP-203, etc.
+- File formats: Parquet, Avro, ORC, JSON, etc.
+- Domain-specific terms only if technical: ETL, ELT, CDC, ACID, OLAP, OLTP, etc.
+
+REJECT (do NOT extract these):
+- Soft skills: team player, self-starter, passionate, motivated, communicator, collaborative
+- Generic adjectives: fast-paced, dynamic, innovative, hands-on, detail-oriented
+- Environment descriptors: fast-paced environment, agile environment, remote-first, hybrid
+- Generic single words: data, engineer, technology, solution, platform, system
+- Years of experience phrases: 5+ years, senior level (these are filters, not keywords)
+- Behavioural traits: leadership, ownership, accountability, curiosity
+- Industry words alone: insurance, finance, healthcare (unless paired with technical context)
+- Generic verbs: build, design, develop, implement (these are not keywords, they're actions)
+
+Return JSON with this exact shape. Use plain canonical-form names. For
+acronym-style terms, write "Full Form (ACRONYM)" so the resume can
+canonical-form-first match (e.g. "Infrastructure-as-Code (IaC)").
+
+{
+  "tools": ["<list of tools, max 12>"],
+  "languages": ["<programming/query languages, max 6>"],
+  "cloud_services": ["<specific cloud services like AWS Glue, max 10>"],
+  "methodologies": ["<frameworks, patterns, methodologies, max 8>"],
+  "compliance": ["<compliance, governance, security terms, max 6>"],
+  "file_formats": ["<file formats and protocols, max 4>"],
+  "rejected_junk": ["<2-5 examples of soft skills or junk you saw in the JD and chose to reject — for transparency>"]
+}
+
+The total of all valid categories should be roughly 20-35 keywords. Quality over quantity.
+If a category is empty, return an empty list.
+"""
+
+
+def extract_jd_keywords(api_key: str, jd_text: str) -> Dict:
+    """Run a focused Flash 3 call to extract clean ATS keywords from a JD.
+
+    Returns categorised keywords plus a 'rejected_junk' list showing the
+    user what we threw out (transparency builds trust in the tool).
+
+    This is a SEPARATE call from resume generation. The architectural
+    constraint 'single Flash 3 call' applies to resume generation only;
+    JD extraction is parallel to the existing ATS scoring and cover
+    letter buttons — each a dedicated focused call. Cost ~$0.003 per JD.
+    """
+    if not api_key:
+        return {"error": "Missing API key for keyword extraction."}
+    if not jd_text or not jd_text.strip():
+        return {"error": "Empty JD."}
+
+    full_prompt = (
+        f"{JD_SCRAPE_PROMPT}\n\n"
+        f"═══ JOB DESCRIPTION ═══\n{jd_text}"
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=GENERATION_MODEL,
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,  # low temp — extraction, not creativity
+            ),
+        )
+        raw = json.loads(response.text)
+    except json.JSONDecodeError as e:
+        return {"error": f"JD scrape returned invalid JSON: {e}"}
+    except Exception as e:
+        return {"error": f"JD scrape failed: {e}"}
+
+    # Defensive: ensure all expected keys exist as lists
+    for key in ["tools", "languages", "cloud_services", "methodologies",
+                "compliance", "file_formats", "rejected_junk"]:
+        if not isinstance(raw.get(key), list):
+            raw[key] = []
+    return raw
+
+
+def flatten_scraped_keywords(scraped: Dict) -> List[str]:
+    """Take the categorised scrape output and flatten to a deduplicated
+    ordered list, preserving category order so most-important categories
+    (tools, languages) come first in the UI."""
+    if not scraped or "error" in scraped:
+        return []
+    ordered = []
+    seen_lower = set()
+    for category in ["tools", "languages", "cloud_services",
+                     "methodologies", "compliance", "file_formats"]:
+        for kw in scraped.get(category, []) or []:
+            kw_clean = (kw or "").strip()
+            if kw_clean and kw_clean.lower() not in seen_lower:
+                ordered.append(kw_clean)
+                seen_lower.add(kw_clean.lower())
+    return ordered
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 18. GENERATION — single Gemini call with preset awareness
 # ═══════════════════════════════════════════════════════════════════
 
@@ -2356,6 +2539,9 @@ for key, default in [
     ("ats_score", None),
     ("cover_letter", None),
     ("force_keywords", ""),
+    ("scraped_keywords", None),   # dict from extract_jd_keywords or None
+    ("scraped_jd_hash", None),    # hash of JD when we last scraped (cache key)
+    ("selected_scraped", []),     # which scraped keywords user has selected
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -2388,13 +2574,14 @@ with st.sidebar:
     st.divider()
     if st.button("🗑️ Reset everything", use_container_width=True):
         for key in ["step", "tailored", "saved_jd", "preset", "ats_score",
-                    "cover_letter", "force_keywords"]:
+                    "cover_letter", "force_keywords",
+                    "scraped_keywords", "scraped_jd_hash", "selected_scraped"]:
             st.session_state.pop(key, None)
         st.session_state["saved_base"] = SUPRAJA_BASE_RESUME
         st.session_state["step"] = 1
         st.rerun()
 
-    st.caption("Astra v2.0 | Personalised for Supraja")
+    st.caption("Astra v2.3 | Personalised for Supraja")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2441,9 +2628,41 @@ if st.session_state["step"] == 1:
             st.warning("Please paste a job description.")
         elif not base.strip():
             st.warning("Base resume is empty. Click 'Restore default base resume'.")
+        elif not api_key:
+            st.warning(
+                "Need a Google API key in the sidebar before continuing — "
+                "Astra scrapes JD keywords on Continue."
+            )
         else:
             st.session_state["saved_base"] = base
             st.session_state["saved_jd"] = jd
+            # ─── JD keyword scraping ───
+            # Only re-scrape if the JD changed. Cache key is a hash of
+            # the JD body so identical re-pastes use the cached result
+            # (saves ~$0.003 per redo).
+            import hashlib
+            jd_hash = hashlib.sha256(jd.encode("utf-8")).hexdigest()[:16]
+            if st.session_state.get("scraped_jd_hash") != jd_hash:
+                with st.spinner(
+                    "Scraping valid ATS keywords from the JD "
+                    "(separate $0.003 call)…"
+                ):
+                    scraped = extract_jd_keywords(api_key, jd)
+                if "error" in scraped:
+                    st.warning(
+                        f"JD keyword scrape failed ({scraped['error']}). "
+                        "Continuing without auto-extracted keywords — "
+                        "you can still type keywords manually in Advanced."
+                    )
+                    st.session_state["scraped_keywords"] = None
+                    st.session_state["scraped_jd_hash"] = None
+                    st.session_state["selected_scraped"] = []
+                else:
+                    st.session_state["scraped_keywords"] = scraped
+                    st.session_state["scraped_jd_hash"] = jd_hash
+                    # Default: pre-select ALL scraped keywords (user
+                    # unchecks any junk before generating)
+                    st.session_state["selected_scraped"] = flatten_scraped_keywords(scraped)
             st.session_state["step"] = 2
             st.rerun()
 
@@ -2480,21 +2699,81 @@ elif st.session_state["step"] == 2:
     st.session_state["preset"] = preset
 
     st.divider()
-    with st.expander("⚙ Advanced (optional)", expanded=is_reopt):
+    with st.expander("⚙ Advanced — keywords to force into resume",
+                     expanded=is_reopt or bool(st.session_state.get("scraped_keywords"))):
+        scraped = st.session_state.get("scraped_keywords")
+
+        # ─── Scraped keyword multiselect ───
+        if scraped and "error" not in scraped:
+            st.markdown("##### ATS keywords scraped from this JD")
+            st.caption(
+                "Astra extracted these valid ATS keywords from your JD. "
+                "All are pre-selected. **Uncheck anything that looks off** "
+                "(rare tools Supraja hasn't used, generic words that slipped "
+                "through). Checked keywords are force-included in the resume."
+            )
+            scraped_pool = flatten_scraped_keywords(scraped)
+            current_selection = st.session_state.get("selected_scraped", scraped_pool)
+            # Defensive: drop any selected items no longer in the pool
+            # (e.g. JD re-scraped and category changed)
+            current_selection = [k for k in current_selection if k in scraped_pool]
+            selected = st.multiselect(
+                "Pick which scraped keywords to force in",
+                options=scraped_pool,
+                default=current_selection,
+                label_visibility="collapsed",
+            )
+            st.session_state["selected_scraped"] = selected
+
+            # Quick action buttons
+            qa1, qa2, qa3 = st.columns([1, 1, 4])
+            if qa1.button("Select all", use_container_width=True, key="sel_all_kw"):
+                st.session_state["selected_scraped"] = list(scraped_pool)
+                st.rerun()
+            if qa2.button("Clear all", use_container_width=True, key="clear_all_kw"):
+                st.session_state["selected_scraped"] = []
+                st.rerun()
+
+            # Show rejected junk for transparency
+            rejected = scraped.get("rejected_junk", []) or []
+            if rejected:
+                with st.expander(
+                    f"🗑 Junk Astra ignored ({len(rejected)} item(s))",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "These looked like keywords in the JD but are soft "
+                        "skills, generic adjectives, or environment "
+                        "descriptors — not real ATS hard skills. Surfaced "
+                        "here so you can see what Astra filtered out."
+                    )
+                    for j in rejected:
+                        st.markdown(f"- {j}")
+            st.divider()
+        elif scraped is None and st.session_state.get("saved_jd"):
+            # JD scraping was skipped or failed
+            st.caption(
+                "_(JD keyword auto-extraction was skipped or failed. "
+                "You can still type keywords manually below.)_"
+            )
+
+        # ─── Custom keywords textarea ───
+        st.markdown("##### Add custom keywords")
         st.caption(
-            "If you notice a specific JD keyword that Astra keeps missing "
-            "(like 'Infrastructure-as-Code' or a niche tool), force it in here."
+            "If you notice a keyword Astra missed (or want to add a "
+            "phrasing variant like 'Infrastructure-as-Code (IaC)'), "
+            "type it here. Comma-separated. Combined with the multiselect "
+            "above when generating."
         )
         force_keywords_input = st.text_area(
-            "Force include these keywords",
+            "Force include these custom keywords",
             value=st.session_state.get("force_keywords", ""),
-            height=80,
-            placeholder="e.g. Infrastructure-as-Code (IaC), Kubernetes, Apache Beam",
+            height=70,
+            placeholder="e.g. Infrastructure-as-Code (IaC), Apache Beam",
+            label_visibility="collapsed",
             help=(
-                "Comma-separated. Astra will treat these as mandatory and "
-                "weave them into Skills or relevant bullets. Use sparingly "
-                "— forcing keywords Supraja can't credibly defend will "
-                "backfire in interviews."
+                "Use sparingly — forcing keywords Supraja can't credibly "
+                "defend will backfire in interviews."
             ),
         )
         st.session_state["force_keywords"] = force_keywords_input
@@ -2509,12 +2788,15 @@ elif st.session_state["step"] == 2:
         if not api_key:
             st.error("Need a Google API key.")
         else:
-            # Parse force-include keywords
-            force_kws = [
-                k.strip() for k in
-                st.session_state.get("force_keywords", "").split(",")
-                if k.strip()
-            ]
+            # Union the two input sources: scraped multiselect + custom text
+            force_kws = list(st.session_state.get("selected_scraped", []))
+            existing_lower = {k.lower() for k in force_kws}
+            for k in st.session_state.get("force_keywords", "").split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean.lower() not in existing_lower:
+                    force_kws.append(k_clean)
+                    existing_lower.add(k_clean.lower())
+
             with st.spinner(
                 f"Tailoring resume to JD (preset: {PRESET_CONFIGS[preset]['label']}, "
                 + (f"forcing {len(force_kws)} keyword(s), " if force_kws else "")
@@ -2565,20 +2847,41 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                      help="Goes back to the preset screen with all missing "
                           "JD keywords pre-loaded into Advanced settings. "
                           "Edit the list, then re-generate."):
-            # Pre-populate force_keywords from current missing list.
-            # Union with whatever the user already had so we don't drop
-            # their previous additions.
-            existing = [
+            # Union missing keywords into BOTH inputs:
+            # 1. If the keyword exists in the scraped pool, ensure it's
+            #    selected in the multiselect.
+            # 2. Otherwise, append it to the custom-keywords textarea.
+            scraped_pool = flatten_scraped_keywords(
+                st.session_state.get("scraped_keywords") or {}
+            )
+            scraped_pool_lower = {k.lower(): k for k in scraped_pool}
+
+            current_selected = list(st.session_state.get("selected_scraped", []))
+            selected_lower = {k.lower() for k in current_selected}
+
+            current_custom = [
                 k.strip() for k in
                 st.session_state.get("force_keywords", "").split(",")
                 if k.strip()
             ]
-            existing_lower = {k.lower() for k in existing}
+            custom_lower = {k.lower() for k in current_custom}
+
             for mk in missing_for_reopt:
-                if mk.lower() not in existing_lower:
-                    existing.append(mk)
-                    existing_lower.add(mk.lower())
-            st.session_state["force_keywords"] = ", ".join(existing)
+                mk_lower = mk.lower()
+                # Already covered? Skip.
+                if mk_lower in selected_lower or mk_lower in custom_lower:
+                    continue
+                # In the scraped pool — add to multiselect selection
+                if mk_lower in scraped_pool_lower:
+                    current_selected.append(scraped_pool_lower[mk_lower])
+                    selected_lower.add(mk_lower)
+                else:
+                    # Not in pool — add to custom keywords
+                    current_custom.append(mk)
+                    custom_lower.add(mk_lower)
+
+            st.session_state["selected_scraped"] = current_selected
+            st.session_state["force_keywords"] = ", ".join(current_custom)
             # Keep the JD and base resume, drop the current output
             st.session_state["tailored"] = None
             st.session_state["ats_score"] = None
@@ -2593,6 +2896,9 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
             st.session_state["ats_score"] = None
             st.session_state["cover_letter"] = None
             st.session_state["force_keywords"] = ""
+            st.session_state["scraped_keywords"] = None
+            st.session_state["scraped_jd_hash"] = None
+            st.session_state["selected_scraped"] = []
             st.session_state["step"] = 1
             st.rerun()
 
@@ -2974,31 +3280,58 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
     with tab_diff:
         st.caption(
             "Section-by-section comparison: base resume on the left, tailored "
-            "version on the right. Use this to spot what changed and whether "
-            "the tailored version still sounds like you."
+            "version on the right. Both rendered as plain text so changes are "
+            "easy to spot without markdown distractions."
         )
 
-        # Build comparable text blocks for each section
-        def _section_block_base(label: str, body: str) -> str:
-            return f"## {label}\n\n{body}"
+        # ─── Tailored side, formatted as PLAIN TEXT ───
+        # Previously this used markdown (# Name, ### Section) which rendered
+        # as literal '#' characters in the text_area. Now we match the
+        # base resume's plain-text style for symmetric reading.
 
-        # Tailored side
-        tailored_summary = data["summary"]
-        tailored_skills_block = "\n".join(
-            [f"- **{e['category']}:** {e['technologies']}" for e in data["skills"]]
-        )
+        # Skills — plain "Category: tools" lines, no bold
+        tailored_skills_lines = [
+            f"- {e['category']}: {e['technologies']}"
+            for e in data["skills"]
+        ]
+        tailored_skills_block = "\n".join(tailored_skills_lines)
+
+        # Experience — plain role headers, no markdown
         tailored_exp_blocks = []
         for role in data["experience"]:
             header = (
-                f"### {role['role_title']} | {role['company']} | "
+                f"{role['role_title']} | {role['company']} | "
                 f"{role['location']} | {role['dates']}"
             )
-            body = "\n".join([f"- {r}" for r in role["responsibilities"]])
-            if role["achievements"]:
-                body += "\n**Achievements:**\n" + "\n".join(
-                    [f"- {a}" for a in role["achievements"]]
-                )
-            tailored_exp_blocks.append(header + "\n" + body)
+            resp_lines = [f"- {r}" for r in role["responsibilities"]]
+            body_parts = ["\n".join(resp_lines)]
+            if role.get("achievements"):
+                ach_lines = [f"- {a}" for a in role["achievements"]]
+                body_parts.append("Achievements:")
+                body_parts.append("\n".join(ach_lines))
+            tailored_exp_blocks.append(header + "\n" + "\n".join(body_parts))
+
+        # Education & Certifications — plain bullets
+        edu_lines = [
+            f"- {edu['degree']}, {edu['institution']} ({edu['dates']})"
+            for edu in data.get("education", [])
+        ]
+        cert_lines = [f"- {c}" for c in data.get("certifications", [])]
+        edu_cert_block = "\n".join(edu_lines + cert_lines)
+
+        # Assemble — plain text, blank lines between sections, no headers
+        tailored_text = (
+            f"{data['candidate_name']}\n"
+            f"{data['candidate_title']}\n"
+            f"{data['contact_info']}\n\n"
+            f"Professional Profile\n\n"
+            f"{data['summary']}\n\n"
+            f"Key Skills / Tools & Technologies\n\n"
+            f"{tailored_skills_block}\n\n"
+            f"Professional Experience\n\n"
+            + "\n\n".join(tailored_exp_blocks)
+            + f"\n\nEducation & Certifications\n\n{edu_cert_block}"
+        )
 
         col_b, col_t = st.columns(2)
         with col_b:
@@ -3009,23 +3342,6 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
             )
         with col_t:
             st.markdown("### Tailored resume")
-            # Build Education & Certifications block (was missing before
-            # — user flagged it).
-            edu_block = "\n".join([
-                f"- {edu['degree']}, {edu['institution']} ({edu['dates']})"
-                for edu in data.get("education", [])
-            ])
-            cert_block = "\n".join([f"- {c}" for c in data.get("certifications", [])])
-            tailored_text = (
-                f"# {data['candidate_name']}\n"
-                f"## {data['candidate_title']}\n"
-                f"{data['contact_info']}\n\n"
-                f"### Professional Profile\n{tailored_summary}\n\n"
-                f"### Key Skills\n{tailored_skills_block}\n\n"
-                f"### Professional Experience\n"
-                + "\n\n".join(tailored_exp_blocks)
-                + f"\n\n### Education & Certifications\n{edu_block}\n{cert_block}"
-            )
             st.text_area(
                 "Tailored", tailored_text, height=600,
                 label_visibility="collapsed", disabled=True,
