@@ -423,6 +423,68 @@ def apply_replacements(text: str) -> str:
     return cleaned
 
 
+# Hard-banned modifiers — pure decorative adjectives that have no clean
+# substitute. These were caught by count_banned_tier1 but never removed
+# in v2.0, so they kept tanking the Readability score (Problem 2 in the
+# v2.0 review). strip_banned_modifiers fixes that: removes the modifier
+# along with surrounding fluff so the bullet still reads cleanly.
+#
+# Also handles "through the implementation of" padding (reviewer's
+# observation on the McKesson achievement bullet).
+MODIFIER_STRIP_PATTERNS = [
+    # Padding phrases — collapse before stripping the modifier itself
+    (re.compile(r'\bthrough the implementation of\b', re.IGNORECASE),
+     'by implementing'),
+    (re.compile(r'\bvia the implementation of\b', re.IGNORECASE),
+     'by implementing'),
+    (re.compile(r'\bthe implementation of\b', re.IGNORECASE),
+     'implementing'),
+    (re.compile(r'\bin order to\b', re.IGNORECASE), 'to'),
+
+    # Strip standalone banned modifiers when sandwiched between
+    # spaces. "deploying robust workflow automation" → "deploying
+    # workflow automation". Word-boundary anchored, case-insensitive.
+    (re.compile(
+        r'(?<=\s)('
+        r'robust|seamless|innovative|groundbreaking|cutting[- ]edge|'
+        r'transformative|vibrant|compelling|crucial|pivotal|intricate|'
+        r'state[- ]of[- ]the[- ]art|best[- ]in[- ]class|world[- ]class'
+        r')\s+', re.IGNORECASE), ''),
+
+    # At the very start of a bullet/sentence
+    (re.compile(
+        r'^('
+        r'Robust|Seamless|Innovative|Groundbreaking|Cutting[- ]edge|'
+        r'Transformative|Vibrant|Compelling|Crucial|Pivotal|Intricate'
+        r')\s+', re.MULTILINE), ''),
+]
+
+
+def strip_banned_modifiers(text: str) -> str:
+    """Remove pure-decorative banned adjectives (robust, seamless, etc.)
+    and collapse common padding phrases ('through the implementation of').
+
+    Applied alongside apply_replacements after generation. The Tier-1
+    regex still counts any survivors for the Readability score, but
+    in practice this strip catches them first.
+    """
+    if not text:
+        return text
+    cleaned = text
+    for pattern, repl in MODIFIER_STRIP_PATTERNS:
+        cleaned = pattern.sub(repl, cleaned)
+    # Tidy: collapse double spaces left behind by stripping
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    # Tidy: any " ," or " ." artifacts from edge cases
+    cleaned = re.sub(r'\s+([,.])', r'\1', cleaned)
+    cleaned = cleaned.strip()
+    # If sentence-start modifier was stripped, next word is now
+    # lowercase — recapitalise.
+    if cleaned and cleaned[0].islower():
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned
+
+
 def count_banned_tier1(text: str) -> int:
     """Count remaining Tier-1 hits after replacement pass."""
     if not text:
@@ -1348,7 +1410,17 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
     real coverage might be 12/40). We surface `low_confidence=True` in
     that case and the UI shows a warning instead of trusting the number.
     The threshold of 8 matches the research recommendation that a
-    typical JD has 10-15 hard skills the model should extract."""
+    typical JD has 10-15 hard skills the model should extract.
+
+    v2.1 fixes (from production review):
+    - Flexible matching for parenthetical canonical forms. The JD says
+      "Infrastructure-as-Code (IaC)"; the resume has "DevOps & IaC".
+      Plain substring match fails; the new _kw_present helper checks
+      both the full phrase AND the parts split on parentheses.
+    - Stuffing threshold raised from 92 to 95 for small samples.
+      13-of-14 isn't keyword-stuffing, it's just a small sample. Only
+      apply the harsh stuffing penalty when total >= 20 keywords.
+    """
     # Guard 1: model returned no keywords at all
     if not jd_keywords:
         return 0, "No JD keywords extracted", [], True
@@ -1365,13 +1437,32 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
             parts.append(b)
     full_text = " ".join(parts).lower()
 
+    def _kw_present(kw: str) -> bool:
+        """Flexible keyword match. Handles three forms:
+        1. Plain substring: 'Snowflake' in resume text → True
+        2. Parenthetical: 'Infrastructure-as-Code (IaC)' matches if
+           either 'infrastructure-as-code' OR 'iac' is present
+        3. Already-canonical: 'Apache Airflow' matches 'airflow' as a
+           fallback (the abbreviation/canonical short form is often
+           what appears in skills sections)
+        """
+        kw_clean = kw.strip().lower()
+        if not kw_clean:
+            return False
+        if kw_clean in full_text:
+            return True
+        # Parenthetical split: "Foo (Bar)" → check both "foo" and "bar"
+        parts_split = re.split(r'\s*\(\s*|\s*\)\s*', kw_clean)
+        parts_split = [p.strip() for p in parts_split if p.strip()]
+        if len(parts_split) >= 2:
+            if any(p in full_text for p in parts_split):
+                return True
+        return False
+
     found = []
     missing = []
     for kw in jd_keywords:
-        kw_clean = kw.strip().lower()
-        if not kw_clean:
-            continue
-        if kw_clean in full_text:
+        if _kw_present(kw):
             found.append(kw)
         else:
             missing.append(kw)
@@ -1384,17 +1475,21 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
     low_confidence = total < 8
 
     pct = round(100 * len(found) / total)
-    # Score against research-recommended 78-85% target band
+    # Score against research-recommended 78-85% target band.
+    # v2.1: stuffing penalty only applies for sample sizes >= 20.
+    # On smaller samples, 13-of-14 is "thorough", not "stuffed".
     if 78 <= pct <= 85:
         score = 95  # ideal
     elif 70 <= pct < 78:
         score = 85
     elif 85 < pct <= 92:
         score = 80  # approaching stuffing zone
+    elif pct > 95 or (pct > 92 and total >= 20):
+        score = 60  # genuine stuffing risk
+    elif pct > 92:
+        score = 88  # high coverage but small sample, don't penalise hard
     elif 60 <= pct < 70:
         score = 70
-    elif pct > 92:
-        score = 60  # stuffing risk
     else:
         score = 50
 
@@ -1644,7 +1739,8 @@ def generate_ready_checklist(overall: int, impact_score: int,
 # ═══════════════════════════════════════════════════════════════════
 
 def call_gemini(api_key: str, resume_text: str, jd_text: str,
-                preset: str = DEFAULT_PRESET) -> Dict:
+                preset: str = DEFAULT_PRESET,
+                force_include_keywords: List[str] = None) -> Dict:
     if not api_key:
         return {"error": "Missing GOOGLE_API_KEY."}
     if not jd_text or not jd_text.strip():
@@ -1663,11 +1759,29 @@ def call_gemini(api_key: str, resume_text: str, jd_text: str,
         .replace("{{DOMAIN_VOCAB}}", DOMAIN_VOCAB_REFERENCE)
     )
 
+    # Build the force-include directive if the user supplied keywords
+    # through the Advanced expander. Injected after the preset block so
+    # it gets read with maximum salience.
+    force_block = ""
+    if force_include_keywords:
+        force_block = (
+            "\n═══ MANDATORY KEYWORDS (user override) ═══\n\n"
+            "The user has flagged these specific keywords as MUST APPEAR "
+            "in the output. Weave each one into Skills (in the right "
+            "canonical category) AND surface it in at least one bullet "
+            "where Supraja's experience credibly supports it. If a "
+            "keyword's full canonical form has a parenthetical short "
+            "form (e.g. 'Infrastructure-as-Code (IaC)'), use the FULL "
+            "form on first mention.\n\n"
+            f"MANDATORY KEYWORDS: {', '.join(force_include_keywords)}\n"
+        )
+
     client = genai.Client(api_key=api_key)
     safe_schema = get_clean_schema(TailoredOutput)
 
     full_prompt = (
         f"{prompt}\n\n"
+        f"{force_block}"
         f"═══ BASE RESUME ═══\n{resume_text}\n\n"
         f"═══ JOB DESCRIPTION ═══\n{jd_text}"
     )
@@ -1755,6 +1869,7 @@ def generate_cover_letter(api_key: str, resume_data: dict, jd_text: str) -> str:
         text = re.sub(r"^dear\s+[^\n]+\n+", "", text, flags=re.IGNORECASE)
         text = strip_em_dashes(text)
         text = apply_replacements(text)
+        text = strip_banned_modifiers(text)
         return text
     except Exception as e:
         return f"ERROR: Cover letter generation failed: {e}"
@@ -1764,17 +1879,24 @@ def generate_cover_letter(api_key: str, resume_data: dict, jd_text: str) -> str:
 # 19. ASSEMBLE — merge model output with locked facts + safety nets
 # ═══════════════════════════════════════════════════════════════════
 
-def assemble_resume(model_output: dict, preset: str) -> dict:
+def assemble_resume(model_output: dict, preset: str,
+                    force_include_keywords: List[str] = None) -> dict:
     """Combine model output with locked facts. Apply all safety nets:
     em-dash strip, pronoun strip, banned-phrase replacement, skill
     category validation, grounding check, burstiness audit, multi-axis
-    scoring."""
+    scoring.
+
+    force_include_keywords: user-supplied list of keywords that MUST
+    appear in the resume. They get unioned into jd_intelligence.top_keywords
+    so the scorer treats them as mandatory; any that the model missed
+    show up clearly in the missing list."""
 
     # ─── Summary ───
     summary = model_output.get("summary", "") or ""
     summary = strip_em_dashes(summary)
     summary = strip_summary_pronouns(summary)
     summary = apply_replacements(summary)
+    summary = strip_banned_modifiers(summary)
     summary = fix_banned_openers(summary)
     if not summary or len(summary.split()) < 25:
         summary = (
@@ -1827,10 +1949,15 @@ def assemble_resume(model_output: dict, preset: str) -> dict:
         if isinstance(achs, str):
             achs = [a.strip() for a in achs.split("\n") if a.strip()]
 
-        # Apply all sweeps per bullet
+        # Apply all sweeps per bullet. Order matters:
+        # 1. Strip em dashes (visual AI tell)
+        # 2. Apply soft replacements (leveraged→used, etc.)
+        # 3. Strip hard-banned modifiers (robust, seamless — Problem 2 fix)
+        # 4. Fix banned sentence openers
         def _clean(b):
             b = strip_em_dashes(b)
             b = apply_replacements(b)
+            b = strip_banned_modifiers(b)
             b = fix_banned_openers(b)
             return b
 
@@ -1849,13 +1976,25 @@ def assemble_resume(model_output: dict, preset: str) -> dict:
     # ─── JD intelligence + tailoring notes (from model) ───
     jd_intel = model_output.get("jd_intelligence", {}) or {}
     if isinstance(jd_intel, dict):
+        model_top_kws = jd_intel.get("top_keywords", []) or []
+        # Union the force-included keywords. Dedup case-insensitively
+        # so a user typing "Snowflake" doesn't duplicate the model's
+        # already-extracted "snowflake".
+        combined_kws = list(model_top_kws)
+        if force_include_keywords:
+            existing_lower = {k.lower() for k in combined_kws}
+            for fk in force_include_keywords:
+                if fk.lower() not in existing_lower:
+                    combined_kws.append(fk)
+                    existing_lower.add(fk.lower())
         jd_intel = {
-            "top_keywords": jd_intel.get("top_keywords", []) or [],
+            "top_keywords": combined_kws,
             "required_tools": jd_intel.get("required_tools", []) or [],
             "nice_to_have_tools": jd_intel.get("nice_to_have_tools", []) or [],
             "emphasis_areas": jd_intel.get("emphasis_areas", []) or [],
             "industry": jd_intel.get("industry", "") or "",
             "seniority_signal": jd_intel.get("seniority_signal", "senior") or "senior",
+            "force_included": list(force_include_keywords or []),
         }
 
     tailoring_notes = model_output.get("tailoring_notes", {}) or {}
@@ -2174,6 +2313,7 @@ for key, default in [
     ("preset", DEFAULT_PRESET),
     ("ats_score", None),
     ("cover_letter", None),
+    ("force_keywords", ""),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -2205,7 +2345,8 @@ with st.sidebar:
 
     st.divider()
     if st.button("🗑️ Reset everything", use_container_width=True):
-        for key in ["step", "tailored", "saved_jd", "preset", "ats_score", "cover_letter"]:
+        for key in ["step", "tailored", "saved_jd", "preset", "ats_score",
+                    "cover_letter", "force_keywords"]:
             st.session_state.pop(key, None)
         st.session_state["saved_base"] = SUPRAJA_BASE_RESUME
         st.session_state["step"] = 1
@@ -2285,17 +2426,22 @@ elif st.session_state["step"] == 2:
     st.divider()
     with st.expander("⚙ Advanced (optional)", expanded=False):
         st.caption(
-            "These settings are filled in for Supraja's profile. Override "
-            "only if you have a specific reason."
+            "If you notice a specific JD keyword that Astra keeps missing "
+            "(like 'Infrastructure-as-Code' or a niche tool), force it in here."
         )
-        st.text_input(
-            "Seniority", value="Senior (5+ years)", disabled=True,
-            help="Locked at code level. Astra uses senior-tier verb selection.",
+        force_keywords_input = st.text_area(
+            "Force include these keywords",
+            value=st.session_state.get("force_keywords", ""),
+            height=80,
+            placeholder="e.g. Infrastructure-as-Code (IaC), Kubernetes, Apache Beam",
+            help=(
+                "Comma-separated. Astra will treat these as mandatory and "
+                "weave them into Skills or relevant bullets. Use sparingly "
+                "— forcing keywords Supraja can't credibly defend will "
+                "backfire in interviews."
+            ),
         )
-        st.text_input(
-            "Target match band", value="78–85% (research-validated)", disabled=True,
-            help="Above 88% triggers keyword-stuffing detectors.",
-        )
+        st.session_state["force_keywords"] = force_keywords_input
 
     st.divider()
     col_back, col_gen = st.columns([1, 3])
@@ -2307,20 +2453,28 @@ elif st.session_state["step"] == 2:
         if not api_key:
             st.error("Need a Google API key.")
         else:
+            # Parse force-include keywords
+            force_kws = [
+                k.strip() for k in
+                st.session_state.get("force_keywords", "").split(",")
+                if k.strip()
+            ]
             with st.spinner(
                 f"Tailoring resume to JD (preset: {PRESET_CONFIGS[preset]['label']}, "
-                "single pass, ~10 seconds)…"
+                + (f"forcing {len(force_kws)} keyword(s), " if force_kws else "")
+                + "single pass, ~10 seconds)…"
             ):
                 model_out = call_gemini(
                     api_key,
                     st.session_state["saved_base"],
                     st.session_state["saved_jd"],
                     preset=preset,
+                    force_include_keywords=force_kws,
                 )
                 if "error" in model_out:
                     st.error(model_out["error"])
                 else:
-                    final = assemble_resume(model_out, preset)
+                    final = assemble_resume(model_out, preset, force_kws)
                     st.session_state["tailored"] = final
                     st.session_state["ats_score"] = None
                     st.session_state["cover_letter"] = None
@@ -2527,19 +2681,29 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
             if st.form_submit_button("💾 Save edits + re-validate", type="primary"):
                 # Re-apply safety nets after manual edit
                 data["summary"] = fix_banned_openers(
-                    apply_replacements(
-                        strip_summary_pronouns(strip_em_dashes(data["summary"]))
+                    strip_banned_modifiers(
+                        apply_replacements(
+                            strip_summary_pronouns(strip_em_dashes(data["summary"]))
+                        )
                     )
                 )
                 data["candidate_title"] = strip_em_dashes(data["candidate_title"])
                 data["skills"] = validate_and_repair_skill_categories(data["skills"])
                 for role in data["experience"]:
                     role["responsibilities"] = [
-                        fix_banned_openers(apply_replacements(strip_em_dashes(r)))
+                        fix_banned_openers(
+                            strip_banned_modifiers(
+                                apply_replacements(strip_em_dashes(r))
+                            )
+                        )
                         for r in role["responsibilities"]
                     ]
                     role["achievements"] = [
-                        fix_banned_openers(apply_replacements(strip_em_dashes(a)))
+                        fix_banned_openers(
+                            strip_banned_modifiers(
+                                apply_replacements(strip_em_dashes(a))
+                            )
+                        )
                         for a in role["achievements"]
                     ]
                 # Recompute scoring with edited content
