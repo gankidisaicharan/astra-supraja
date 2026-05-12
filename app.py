@@ -1509,13 +1509,18 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
     full_text = " ".join(parts).lower()
 
     def _kw_present(kw: str) -> bool:
-        """Flexible keyword match. Handles three forms:
+        """Flexible keyword match. Handles four forms:
         1. Plain substring: 'Snowflake' in resume text → True
         2. Parenthetical: 'Infrastructure-as-Code (IaC)' matches if
            either 'infrastructure-as-code' OR 'iac' is present
         3. Already-canonical: 'Apache Airflow' matches 'airflow' as a
            fallback (the abbreviation/canonical short form is often
            what appears in skills sections)
+        4. Token-based fallback: 'Batch Processing' matches if both
+           'batch' and 'processing' appear anywhere in the resume.
+           Catches semantically-covered keywords that don't appear
+           as a verbatim phrase. Stopwords are ignored so multi-word
+           keywords with 'the/a/of/and' still match correctly.
         """
         kw_clean = kw.strip().lower()
         if not kw_clean:
@@ -1528,6 +1533,10 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
         if len(parts_split) >= 2:
             if any(p in full_text for p in parts_split):
                 return True
+        # Token-based fallback: every significant token appears somewhere
+        tokens = _significant_tokens(kw_clean)
+        if len(tokens) >= 2 and all(t in full_text for t in tokens):
+            return True
         return False
 
     found = []
@@ -1687,6 +1696,181 @@ def overall_match_label(score: int) -> Tuple[str, str]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 16b. CROSS-CHECK INFRASTRUCTURE (real, dynamic verification)
+# Replaces static threshold warnings with deterministic cross-checking
+# against the actual tailored resume. Every claim Astra makes is now
+# computed from the output, not generic boilerplate.
+# ═══════════════════════════════════════════════════════════════════
+
+# Words to ignore when doing token-based keyword matching. Generic
+# language particles that any English text contains.
+_TOKEN_STOPWORDS = {
+    "the", "a", "an", "and", "or", "of", "in", "on", "for", "to", "with",
+    "by", "is", "are", "be", "as", "at", "from", "into", "via", "using",
+}
+
+
+def _significant_tokens(phrase: str) -> List[str]:
+    """Split a multi-word phrase into its content tokens — lowercase,
+    stopwords removed, short particles dropped. Used for permissive
+    keyword matching when the literal substring isn't found."""
+    if not phrase:
+        return []
+    # Split on whitespace, slash, hyphen, ampersand, etc.
+    raw = re.split(r"[\s/\-&]+", phrase.lower())
+    return [t for t in raw if t and len(t) >= 3 and t not in _TOKEN_STOPWORDS]
+
+
+def find_ai_tells(summary: str, experience: List[Dict]) -> List[Dict]:
+    """Scan the assembled resume for surviving Tier-1 banned phrases.
+    Returns a list of {phrase, location, bullet} dicts — specific,
+    citable feedback for the Ready Checklist.
+
+    Previously the checklist just said 'some flagged phrases' without
+    naming them. With this helper the user sees exactly which phrase
+    was found and exactly which bullet to edit.
+    """
+    tells = []
+
+    def _scan(text: str, location: str):
+        if not text:
+            return
+        for m in BANNED_TIER1_PATTERN.finditer(text):
+            tells.append({
+                "phrase": m.group(0),
+                "location": location,
+                "bullet": text[:140] + ("..." if len(text) > 140 else ""),
+            })
+
+    _scan(summary, "Summary")
+    for role in experience or []:
+        company = role.get("company", "")
+        for i, b in enumerate(role.get("responsibilities", []) or [], start=1):
+            _scan(b, f"{company} · resp #{i}")
+        for i, b in enumerate(role.get("achievements", []) or [], start=1):
+            _scan(b, f"{company} · ach #{i}")
+    return tells
+
+
+def compute_actual_changes(base_resume_text: str,
+                           tailored_data: Dict,
+                           force_keywords: List[str] = None) -> Dict:
+    """Deterministic cross-check: what *actually* changed between the
+    base resume and the tailored output. Replaces the model's
+    self-report with verifiable facts.
+
+    Returns a dict with:
+    - keywords_added: JD keywords present in tailored but NOT in base
+    - keywords_carried_over: JD keywords already in base
+    - keywords_still_missing: JD keywords absent from tailored output
+    - force_keywords_status: per-keyword present/missing list
+    - bullets_rewritten_count: approximate count of significantly
+      changed bullets (token-overlap < 60% with closest base bullet)
+    - summary_changed: whether the summary differs meaningfully from base
+    """
+    force_keywords = force_keywords or []
+    base_lower = (base_resume_text or "").lower()
+
+    # Build tailored full text (all sections, lowercased) so we can
+    # cheaply check presence
+    tailored_parts = [tailored_data.get("summary", "")]
+    for s in tailored_data.get("skills", []):
+        tailored_parts.append(s.get("technologies", ""))
+    for role in tailored_data.get("experience", []):
+        tailored_parts.extend(role.get("responsibilities", []) or [])
+        tailored_parts.extend(role.get("achievements", []) or [])
+    tailored_text = " ".join(p for p in tailored_parts if p).lower()
+
+    def _kw_in(kw: str, text: str) -> bool:
+        """Same flexible matching as compute_keywords_axis._kw_present
+        — substring → parenthetical split → token-based fallback."""
+        kw_clean = (kw or "").strip().lower()
+        if not kw_clean:
+            return False
+        if kw_clean in text:
+            return True
+        parts = re.split(r"\s*\(\s*|\s*\)\s*", kw_clean)
+        parts = [p.strip() for p in parts if p.strip()]
+        if len(parts) >= 2 and any(p in text for p in parts):
+            return True
+        # Token-based fallback for multi-word keywords. "Batch Processing"
+        # matches if both "batch" and "processing" appear (anywhere).
+        tokens = _significant_tokens(kw_clean)
+        if len(tokens) >= 2 and all(t in text for t in tokens):
+            return True
+        return False
+
+    # ─── Categorise JD keywords by where they appear ───
+    jd_kws = tailored_data.get("jd_intelligence", {}).get("top_keywords", []) or []
+    added, carried, still_missing = [], [], []
+    for kw in jd_kws:
+        in_tailored = _kw_in(kw, tailored_text)
+        in_base = _kw_in(kw, base_lower)
+        if in_tailored and not in_base:
+            added.append(kw)
+        elif in_tailored and in_base:
+            carried.append(kw)
+        elif not in_tailored:
+            still_missing.append(kw)
+
+    # ─── Force-include keyword verification ───
+    force_status = []
+    for fk in force_keywords:
+        force_status.append({
+            "keyword": fk,
+            "present_in_resume": _kw_in(fk, tailored_text),
+        })
+
+    # ─── Bullet rewrite count ───
+    # Token overlap against best-matching base bullet. <60% = rewritten.
+    base_bullets = re.findall(r"^\s*-\s*(.+)$", base_resume_text or "", re.MULTILINE)
+    base_token_sets = [set(b.lower().split()) for b in base_bullets if b.strip()]
+    rewritten = 0
+    total_bullets = 0
+    for role in tailored_data.get("experience", []):
+        for b in (role.get("responsibilities", []) or []) + (role.get("achievements", []) or []):
+            if not b or not b.strip():
+                continue
+            total_bullets += 1
+            t_tokens = set(b.lower().split())
+            if not t_tokens or not base_token_sets:
+                rewritten += 1
+                continue
+            max_overlap = max(
+                (len(t_tokens & bt) / max(len(t_tokens), 1) for bt in base_token_sets if bt),
+                default=0.0,
+            )
+            if max_overlap < 0.6:
+                rewritten += 1
+
+    # ─── Summary changed? ───
+    base_summary_match = re.search(
+        r"Professional Profile\s*\n+(.+?)(?=\n\s*\n|\nKey Skills)",
+        base_resume_text or "", re.DOTALL,
+    )
+    base_summary = base_summary_match.group(1).strip() if base_summary_match else ""
+    tailored_summary = tailored_data.get("summary", "")
+    base_summary_tokens = set(base_summary.lower().split())
+    tailored_summary_tokens = set(tailored_summary.lower().split())
+    if base_summary_tokens and tailored_summary_tokens:
+        overlap = (len(base_summary_tokens & tailored_summary_tokens)
+                   / max(len(tailored_summary_tokens), 1))
+        summary_changed = overlap < 0.7
+    else:
+        summary_changed = bool(tailored_summary)
+
+    return {
+        "keywords_added": added,
+        "keywords_carried_over": carried,
+        "keywords_still_missing": still_missing,
+        "force_keywords_status": force_status,
+        "bullets_rewritten_count": rewritten,
+        "bullets_total_count": total_bullets,
+        "summary_changed": summary_changed,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 17. READY-TO-SEND CHECKLIST (deterministic, zero LLM cost)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1695,17 +1879,23 @@ def generate_ready_checklist(overall: int, impact_score: int,
                              missing_keywords: List[str],
                              grounding_warnings: Dict,
                              burstiness: Dict,
-                             kw_low_confidence: bool = False
+                             kw_low_confidence: bool = False,
+                             ai_tells: List[Dict] = None,
                              ) -> List[Tuple[bool, str]]:
-    """Per research: a green-check block above the download button.
-    Returns list of (passed, message) tuples.
+    """Returns list of (passed, message) tuples for the Ready Checklist.
 
-    Messages are written for non-technical reviewers (e.g. Niharika).
-    Raw numbers stay visible in the Score Breakdown card up top; this
-    block translates them into plain English so a coordinator can
-    decide whether to send the resume without understanding stdev.
+    v2.4: every message is now backed by actual cross-checked data, not
+    a generic threshold. If a warning says "AI-sounding phrases found",
+    it names the exact phrases. If it says "verb repetition", it names
+    the verb and the count. No more static "uniform bullet structure"
+    boilerplate.
+
+    ai_tells: list of {phrase, location, bullet} dicts from
+    find_ai_tells(). When non-empty, the readability message lists the
+    specific phrases instead of a generic warning.
     """
     checks = []
+    ai_tells = ai_tells or []
 
     # ─── Overall match ───
     if 78 <= overall <= 85:
@@ -1745,9 +1935,9 @@ def generate_ready_checklist(overall: int, impact_score: int,
             "⚠️ Astra only pulled a small number of keywords from this JD. "
             "The keyword score may not reflect real coverage — review the "
             "missing list manually before sending."))
-    elif keywords_score >= 80 and not missing_keywords:
+    elif not missing_keywords:
         checks.append((True,
-            "All top JD keywords are present in the resume."))
+            f"All {keywords_score and 'top'} JD keywords are present in the resume."))
     elif keywords_score >= 75:
         miss_preview = ", ".join(missing_keywords[:3])
         more = f" and {len(missing_keywords)-3} more" if len(missing_keywords) > 3 else ""
@@ -1759,35 +1949,58 @@ def generate_ready_checklist(overall: int, impact_score: int,
             f"Several JD keywords are missing: {miss_preview}. "
             f"Add these to Skills or weave into a bullet where Supraja has the work."))
 
-    # ─── Readability + burstiness (plain English per UX fix) ───
-    if readability_score >= 85 and burstiness["passes_burstiness"]:
+    # ─── Readability + burstiness ───
+    # New: use actual ai_tells data instead of generic threshold message.
+    burstiness_ok = burstiness["passes_burstiness"]
+    # Dedup the phrases (case-insensitive) and pick up to 4 to name
+    unique_phrases = sorted({(t["phrase"] or "").lower() for t in ai_tells})
+    phrases_preview = ", ".join(f"'{p}'" for p in unique_phrases[:4])
+    more_phrases = (
+        f" and {len(unique_phrases)-4} more"
+        if len(unique_phrases) > 4 else ""
+    )
+    # Where do the tells appear? Surface a representative location.
+    sample_location = ai_tells[0]["location"] if ai_tells else ""
+
+    if not ai_tells and burstiness_ok:
         checks.append((True,
             "The writing sounds human — no AI-tell phrases, and bullets vary "
             "naturally in length and openers."))
-    elif readability_score >= 85:
-        # Readability passes but burstiness failed — explain what that means
+    elif not ai_tells and not burstiness_ok:
+        # Only burstiness failed
         if burstiness["max_repeat_count"] > 2:
+            verb = burstiness["max_repeat_verb"]
             checks.append((False,
-                f"⚠️ Bullets feel a bit uniform — the word \"{burstiness['max_repeat_verb'].capitalize()}\" "
-                f"starts {burstiness['max_repeat_count']} bullets. Reword two of them "
-                f"to use different verbs (e.g. Architected, Migrated, Tuned)."))
+                f"⚠️ The verb '{verb.capitalize()}' opens "
+                f"{burstiness['max_repeat_count']} different bullets. "
+                f"Reword two of them — try Architected, Migrated, Tuned, "
+                f"Engineered, or Orchestrated instead."))
         else:
+            stdev = burstiness["sentence_stdev"]
             checks.append((False,
-                "⚠️ Bullets sound too uniform — some sentences are very similar "
-                "in length. Mix in a couple of shorter or longer bullets, or "
-                "click Re-generate to try again."))
-    elif burstiness["passes_burstiness"]:
-        # Burstiness passes but readability flagged AI words remain
+                f"⚠️ Bullets are too uniform in length "
+                f"(stdev {stdev:.1f}, target ≥4.0). Mix in a couple of "
+                f"shorter bullets (10-14 words) or longer ones (22-26)."))
+    elif ai_tells and burstiness_ok:
+        # Only readability failed — name the actual phrases found
         checks.append((False,
-            "⚠️ A few AI-sounding phrases slipped through (Astra normally "
-            "catches these). Check the bullets for words like 'leverage', "
-            "'spearhead', 'robust' and reword them."))
+            f"⚠️ {len(ai_tells)} AI-tell phrase(s) survived: "
+            f"{phrases_preview}{more_phrases}. First hit: {sample_location}. "
+            f"Edit those bullets or click Re-optimise."))
     else:
-        # Both failed
+        # Both failed — show BOTH specifics, not the old generic message
+        verb = burstiness["max_repeat_verb"]
+        verb_part = (
+            f"and the verb '{verb.capitalize()}' opens "
+            f"{burstiness['max_repeat_count']} bullets"
+            if burstiness["max_repeat_count"] > 2
+            else f"and bullets are too uniform in length "
+                 f"(stdev {burstiness['sentence_stdev']:.1f})"
+        )
         checks.append((False,
-            "⚠️ Writing reads as AI-generated — uniform bullet structure and "
-            "some flagged phrases. Re-generate with the Keep-my-voice preset "
-            "or edit the longest bullets to vary phrasing."))
+            f"⚠️ Two issues: {len(ai_tells)} AI-tell phrase(s) "
+            f"({phrases_preview}{more_phrases}) {verb_part}. "
+            f"Click Re-optimise — Astra will catch most of these on the second pass."))
 
     # ─── Grounding ───
     grounding_pass = len(grounding_warnings) == 0
@@ -2202,11 +2415,28 @@ def assemble_resume(model_output: dict, preset: str,
     # ─── Grounding warnings ───
     grounding = validate_grounding(experience)
 
-    # ─── Ready checklist ───
+    # ─── Real cross-checks (v2.4) ───
+    # find_ai_tells: every surviving banned phrase + where it lives.
+    # compute_actual_changes: deterministic diff of base vs tailored —
+    # what *actually* changed, not what the model claims it changed.
+    ai_tells = find_ai_tells(summary, experience)
+    actual_changes = compute_actual_changes(
+        SUPRAJA_BASE_RESUME,
+        {
+            "summary": summary,
+            "skills": skills,
+            "experience": experience,
+            "jd_intelligence": jd_intel,
+        },
+        force_keywords=force_include_keywords,
+    )
+
+    # ─── Ready checklist (now with real ai_tells data) ───
     ready = generate_ready_checklist(
         overall, impact_score, kw_score, read_score,
         missing_kws, grounding, burstiness,
         kw_low_confidence=kw_low_confidence,
+        ai_tells=ai_tells,
     )
 
     return {
@@ -2235,6 +2465,8 @@ def assemble_resume(model_output: dict, preset: str,
         "burstiness": burstiness,
         "grounding_warnings": grounding,
         "ready_checklist": ready,
+        "ai_tells": ai_tells,             # for UI: list of {phrase, location, bullet}
+        "actual_changes": actual_changes, # for UI: real cross-check data
         "preset_used": preset,
     }
 
@@ -2951,24 +3183,160 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
             unsafe_allow_html=True,
         )
 
-    # ─── What Astra did ───
+    # ─── What Astra actually did (cross-checked against the output) ───
+    # v2.4: every line below is computed from the tailored resume, not
+    # the model's self-report. The user can verify each claim by looking
+    # at the resume preview below.
     st.divider()
+    changes = data.get("actual_changes", {}) or {}
     notes = data.get("tailoring_notes", {})
-    with st.expander("📋 What Astra did", expanded=True):
-        if notes.get("keyword_coverage_summary"):
-            st.markdown(f"**Summary:** {notes['keyword_coverage_summary']}")
-        if notes.get("rewrote_for"):
-            st.markdown("**Rewrote bullets for:**")
-            for note in notes["rewrote_for"]:
-                st.markdown(f"- {note}")
-        if notes.get("did_not_add"):
-            st.markdown("**Did NOT add (not in your original — verify or skip):**")
-            for note in notes["did_not_add"]:
-                st.markdown(f"- 🛡️ {note}")
-        missing = scores["keywords"].get("missing", [])
-        if missing:
-            st.markdown("**Missing JD keywords:**")
-            st.caption(", ".join(missing))
+
+    with st.expander("📋 What Astra actually did (cross-checked)", expanded=True):
+        # ─── Headline counts (all dynamic) ───
+        added_kws = changes.get("keywords_added", [])
+        carried_kws = changes.get("keywords_carried_over", [])
+        missing_kws = changes.get("keywords_still_missing", [])
+        rewritten_n = changes.get("bullets_rewritten_count", 0)
+        total_n = changes.get("bullets_total_count", 0)
+
+        # Bullets rewritten
+        if total_n:
+            if rewritten_n == 0:
+                st.markdown(
+                    f"✅ **0 of {total_n} bullets rewritten** "
+                    "— Astra preserved Supraja's wording exactly. (You picked "
+                    "a conservative preset, or the base already matched the JD.)"
+                )
+            else:
+                pct = round(100 * rewritten_n / total_n)
+                st.markdown(
+                    f"✅ **{rewritten_n} of {total_n} bullets significantly "
+                    f"rewritten** ({pct}%) to align with the JD's framing."
+                )
+
+        # Summary changed
+        if changes.get("summary_changed"):
+            st.markdown(
+                "✅ **Summary was reframed** in the JD's vocabulary."
+            )
+        else:
+            st.markdown(
+                "ℹ️ Summary was kept close to the original wording."
+            )
+
+        # Keywords added
+        if added_kws:
+            with st.expander(
+                f"✅ {len(added_kws)} new keyword(s) added to the resume "
+                f"(not in base)",
+                expanded=False,
+            ):
+                st.caption(
+                    "These keywords appeared in the JD and were absent from "
+                    "Supraja's base resume — Astra added them."
+                )
+                for kw in added_kws:
+                    st.markdown(f"- {kw}")
+
+        # Keywords already present
+        if carried_kws:
+            with st.expander(
+                f"✅ {len(carried_kws)} JD keyword(s) already in base resume",
+                expanded=False,
+            ):
+                st.caption(
+                    "These keywords were in Supraja's base resume — no "
+                    "rewriting needed, Astra confirmed they made it through."
+                )
+                for kw in carried_kws:
+                    st.markdown(f"- {kw}")
+
+        # Keywords genuinely still missing
+        if missing_kws:
+            st.markdown(
+                f"⚠️ **{len(missing_kws)} JD keyword(s) still missing "
+                f"from the resume:**"
+            )
+            st.caption(", ".join(missing_kws))
+            st.caption(
+                "_Click Re-optimise above to force-include these on a "
+                "second pass, OR add them manually via the Edit tab if "
+                "Supraja has the underlying experience._"
+            )
+
+        # Force-included keywords status (real cross-check)
+        force_status = changes.get("force_keywords_status", [])
+        if force_status:
+            present = [f["keyword"] for f in force_status if f["present_in_resume"]]
+            absent = [f["keyword"] for f in force_status if not f["present_in_resume"]]
+            if not absent:
+                st.markdown(
+                    f"✅ **All {len(present)} force-included keyword(s) "
+                    f"made it into the resume.**"
+                )
+            else:
+                st.markdown(
+                    f"⚠️ **{len(absent)} of {len(force_status)} force-included "
+                    f"keyword(s) did NOT make it in:**"
+                )
+                for k in absent:
+                    st.markdown(f"- ❌ {k}")
+                if present:
+                    st.caption(
+                        f"_Successful: {', '.join(present)}._"
+                    )
+
+        # ─── Model's qualitative narrative (kept, but clearly labelled) ───
+        # The 'Did NOT add' insight from the model is valuable because it
+        # explains *why* certain JD keywords were skipped (e.g.
+        # 'Kubernetes — not in your original, would be fabrication').
+        # Keep it as a model-sourced section, separate from the verified
+        # cross-check above.
+        model_did_not_add = (notes or {}).get("did_not_add", []) or []
+        model_rewrote_for = (notes or {}).get("rewrote_for", []) or []
+        if model_did_not_add or model_rewrote_for:
+            st.divider()
+            st.caption(
+                "**Model's narrative** (the AI's own description — "
+                "useful for context but not independently verified):"
+            )
+            if model_did_not_add:
+                st.markdown(
+                    "**Did NOT add (not in your original — verify or skip):**"
+                )
+                for note in model_did_not_add:
+                    st.markdown(f"- 🛡️ {note}")
+            if model_rewrote_for:
+                with st.expander(
+                    "Astra's own notes on bullet rewrites", expanded=False
+                ):
+                    for note in model_rewrote_for:
+                        st.markdown(f"- {note}")
+
+    # ─── AI-tell phrases found (specific, dynamic) ───
+    # If the readability check found surviving banned phrases, show them
+    # here with their exact bullet context so the user can fix or
+    # Re-optimise. Replaces the old generic 'some flagged phrases'
+    # message.
+    ai_tells = data.get("ai_tells", []) or []
+    if ai_tells:
+        with st.expander(
+            f"🔍 {len(ai_tells)} AI-tell phrase(s) found — review or Re-optimise",
+            expanded=False,
+        ):
+            st.caption(
+                "These specific phrases survived Astra's cleanup pass. "
+                "Open the Edit tab to fix manually, or click Re-optimise "
+                "at the top — Astra will catch most of these on a "
+                "second pass."
+            )
+            for t in ai_tells[:10]:  # cap at 10 to avoid clutter
+                st.markdown(
+                    f"- **'{t['phrase']}'** in *{t['location']}* — "
+                    f"in bullet: _{t['bullet']}_"
+                )
+            if len(ai_tells) > 10:
+                st.caption(f"…and {len(ai_tells) - 10} more.")
 
     # ─── Tabs ───
     tab_preview, tab_edit, tab_export, tab_cover, tab_diff = st.tabs(
@@ -3184,10 +3552,25 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 }
                 data["burstiness"] = burst
                 data["grounding_warnings"] = validate_grounding(data["experience"])
+                # Recompute cross-checks against the edited content
+                edited_ai_tells = find_ai_tells(data["summary"], data["experience"])
+                edited_changes = compute_actual_changes(
+                    SUPRAJA_BASE_RESUME,
+                    {
+                        "summary": data["summary"],
+                        "skills": data["skills"],
+                        "experience": data["experience"],
+                        "jd_intelligence": data["jd_intelligence"],
+                    },
+                    force_keywords=data["jd_intelligence"].get("force_included", []),
+                )
+                data["ai_tells"] = edited_ai_tells
+                data["actual_changes"] = edited_changes
                 data["ready_checklist"] = generate_ready_checklist(
                     overall_new, imp_s, kw_s, rd_s, kw_miss,
                     data["grounding_warnings"], burst,
                     kw_low_confidence=kw_lowc,
+                    ai_tells=edited_ai_tells,
                 )
                 st.session_state["tailored"] = data
                 st.success("Saved and re-scored.")
