@@ -80,8 +80,11 @@ import re
 import io
 import datetime
 import statistics
-import difflib
 from typing import List, Set, Dict, Tuple
+# Note: difflib was imported in an earlier draft for a per-word diff
+# implementation. The current Before/After tab uses side-by-side text
+# areas instead — adequate for non-technical reviewers. If a true
+# word-level diff is added later, re-add `import difflib`.
 
 from pydantic import BaseModel, Field
 from google import genai
@@ -1124,24 +1127,43 @@ def extract_tools_inventory() -> Set[str]:
     return inventory
 
 
+def _norm_vol(token: str) -> str:
+    """Normalise a volume/percentage/count token for grounding comparison.
+
+    Fixes Bug 1: the base resume says "500GB+" but tailored bullets often
+    say "500GB+/day" or "500 GB / day". Without normalisation every daily-
+    volume bullet got falsely flagged as ungrounded. This strips the rate
+    suffix (/day, /month, /hour) and whitespace so both sides match.
+    """
+    if not token:
+        return ""
+    t = token.upper().replace(" ", "")
+    # Strip rate suffixes (one pass handles /DAY, /MONTH, /HOUR, /WEEK, /YR)
+    t = re.sub(r'/(DAY|MONTH|HOUR|WEEK|YEAR|YR|MIN|MINUTE|SEC|SECOND)S?', '', t)
+    return t
+
+
 def extract_numbers_inventory() -> Set[str]:
     """Return a set of number tokens (percentages, GB/TB volumes,
     counts) that appear in the base resume. Generated bullets should
-    only use these numbers."""
+    only use these numbers. All tokens are passed through `_norm_vol`
+    so daily-volume style ("500GB+/day") matches base ("500GB+")."""
     text = SUPRAJA_BASE_RESUME
     inventory = set()
     # Percentages
     for m in re.finditer(r'(\d+\.?\d*)\s*%', text):
-        inventory.add(m.group(1) + "%")
-    # GB/TB volumes
-    for m in re.finditer(r'(\d+\.?\d*)\s*(GB|TB|MB|KB)\+?(/day)?', text, re.IGNORECASE):
-        inventory.add(m.group(0).upper().replace(" ", ""))
+        inventory.add(_norm_vol(m.group(1) + "%"))
+    # GB/TB volumes — allow optional /day suffix in the regex so we
+    # capture it consistently, then strip via _norm_vol
+    for m in re.finditer(r'(\d+\.?\d*)\s*(GB|TB|MB|KB)\+?\s*(/\s*(day|month|hour|week|year|yr)s?)?',
+                         text, re.IGNORECASE):
+        inventory.add(_norm_vol(m.group(0)))
     # Ranges like 20-30%
     for m in re.finditer(r'(\d+)\s*-\s*(\d+)\s*%', text):
-        inventory.add(f"{m.group(1)}-{m.group(2)}%")
+        inventory.add(_norm_vol(f"{m.group(1)}-{m.group(2)}%"))
     # Plain numbers with + (15+, 2 junior, etc.)
     for m in re.finditer(r'\b(\d+)\+', text):
-        inventory.add(f"{m.group(1)}+")
+        inventory.add(_norm_vol(f"{m.group(1)}+"))
     return inventory
 
 
@@ -1168,22 +1190,25 @@ def find_ungrounded_tools(bullet: str) -> List[str]:
 
 def find_ungrounded_numbers(bullet: str) -> List[str]:
     """Return number tokens in the bullet that are NOT in the base
-    resume numbers inventory. Catches fabricated metrics."""
+    resume numbers inventory. Catches fabricated metrics. Both sides
+    are normalised via `_norm_vol` so "/day" and similar rate suffixes
+    don't cause false positives."""
     if not bullet:
         return []
     found = set()
     # Percentages
     for m in re.finditer(r'(\d+\.?\d*)\s*%', bullet):
-        found.add(m.group(1) + "%")
-    # GB/TB
-    for m in re.finditer(r'(\d+\.?\d*)\s*(GB|TB|MB|KB)\+?(/day)?', bullet, re.IGNORECASE):
-        found.add(m.group(0).upper().replace(" ", ""))
+        found.add(_norm_vol(m.group(1) + "%"))
+    # GB/TB with optional rate suffix
+    for m in re.finditer(r'(\d+\.?\d*)\s*(GB|TB|MB|KB)\+?\s*(/\s*(day|month|hour|week|year|yr)s?)?',
+                         bullet, re.IGNORECASE):
+        found.add(_norm_vol(m.group(0)))
     # Plain N+ tokens
     for m in re.finditer(r'\b(\d+)\+', bullet):
-        found.add(f"{m.group(1)}+")
+        found.add(_norm_vol(f"{m.group(1)}+"))
     # Ranges
     for m in re.finditer(r'(\d+)\s*-\s*(\d+)\s*%', bullet):
-        found.add(f"{m.group(1)}-{m.group(2)}%")
+        found.add(_norm_vol(f"{m.group(1)}-{m.group(2)}%"))
     return [n for n in found if n not in NUMBERS_INVENTORY]
 
 
@@ -1311,11 +1336,22 @@ def compute_impact_axis(experience: List[Dict]) -> Tuple[int, str]:
 
 def compute_keywords_axis(skills: List[Dict], summary: str,
                           experience: List[Dict],
-                          jd_keywords: List[str]) -> Tuple[int, str, List[str]]:
+                          jd_keywords: List[str]
+                          ) -> Tuple[int, str, List[str], bool]:
     """% of jd_intelligence.top_keywords present in the resume.
-    Cap above 85% triggers stuffing warning per research."""
+    Cap above 85% triggers stuffing warning per research.
+
+    Returns (score, label, missing_keywords, low_confidence_flag).
+
+    Bug 3 fix: if the model lazily extracted fewer than 8 keywords, the
+    score becomes statistically unreliable (3/4 = 75% looks fine when
+    real coverage might be 12/40). We surface `low_confidence=True` in
+    that case and the UI shows a warning instead of trusting the number.
+    The threshold of 8 matches the research recommendation that a
+    typical JD has 10-15 hard skills the model should extract."""
+    # Guard 1: model returned no keywords at all
     if not jd_keywords:
-        return 0, "No JD keywords extracted", []
+        return 0, "No JD keywords extracted", [], True
 
     # Build full resume text
     parts = [summary]
@@ -1342,7 +1378,10 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
 
     total = len(found) + len(missing)
     if total == 0:
-        return 0, "No JD keywords", []
+        return 0, "No JD keywords", [], True
+
+    # Guard 2: too few keywords for the score to be meaningful
+    low_confidence = total < 8
 
     pct = round(100 * len(found) / total)
     # Score against research-recommended 78-85% target band
@@ -1359,8 +1398,18 @@ def compute_keywords_axis(skills: List[Dict], summary: str,
     else:
         score = 50
 
-    label = f"{len(found)} of {total} JD keywords ({pct}%)"
-    return score, label, missing
+    # If low confidence, dampen the score so the overall match doesn't
+    # get artificially inflated and surface a different label
+    if low_confidence:
+        score = min(score, 65)
+        label = (
+            f"{len(found)} of {total} keywords ({pct}%) "
+            f"— ⚠️ only {total} extracted, may underrepresent JD"
+        )
+    else:
+        label = f"{len(found)} of {total} JD keywords ({pct}%)"
+
+    return score, label, missing, low_confidence
 
 
 def compute_readability_axis(summary: str, experience: List[Dict],
@@ -1479,51 +1528,113 @@ def generate_ready_checklist(overall: int, impact_score: int,
                              keywords_score: int, readability_score: int,
                              missing_keywords: List[str],
                              grounding_warnings: Dict,
-                             burstiness: Dict) -> List[Tuple[bool, str]]:
+                             burstiness: Dict,
+                             kw_low_confidence: bool = False
+                             ) -> List[Tuple[bool, str]]:
     """Per research: a green-check block above the download button.
-    Returns list of (passed, message) tuples."""
+    Returns list of (passed, message) tuples.
+
+    Messages are written for non-technical reviewers (e.g. Niharika).
+    Raw numbers stay visible in the Score Breakdown card up top; this
+    block translates them into plain English so a coordinator can
+    decide whether to send the resume without understanding stdev.
+    """
     checks = []
 
-    checks.append((
-        overall >= 70,
-        f"Overall match: {overall}% " +
-        ("(in target band 78-85%)" if 78 <= overall <= 85
-         else "(below target)" if overall < 78
-         else "(at upper bound)"),
-    ))
+    # ─── Overall match ───
+    if 78 <= overall <= 85:
+        checks.append((True,
+            f"Overall match looks strong — in the recruiter-sweet-spot band "
+            f"({overall}%)."))
+    elif overall > 85:
+        checks.append((True,
+            f"Overall match is high ({overall}%). At this level the resume "
+            f"may start to read as keyword-stuffed. Consider Keep-my-voice "
+            f"preset if it feels off."))
+    elif 70 <= overall < 78:
+        checks.append((True,
+            f"Overall match is acceptable ({overall}%). You can send as-is "
+            f"or check the missing keywords below."))
+    else:
+        checks.append((False,
+            f"Overall match is low ({overall}%). Consider Maximize-match "
+            f"preset or check whether this JD is the right fit."))
 
-    checks.append((
-        impact_score >= 70,
-        f"Impact score: {impact_score}/100 (target: 60-70% bullets quantified)",
-    ))
+    # ─── Impact (quantification) ───
+    if impact_score >= 80:
+        checks.append((True,
+            "Bullets carry a healthy mix of numbers and qualitative outcomes."))
+    elif impact_score >= 60:
+        checks.append((True,
+            "Some bullets could use a number or scale to land harder, but "
+            "good enough to send."))
+    else:
+        checks.append((False,
+            "Most bullets are missing concrete numbers. Add scale, percentages, "
+            "or named systems where you can."))
 
-    checks.append((
-        keywords_score >= 75,
-        f"Keyword coverage: {keywords_score}/100 " +
-        (f"(missing: {', '.join(missing_keywords[:3])})" if missing_keywords
-         else "(all top keywords covered)"),
-    ))
+    # ─── Keywords ───
+    if kw_low_confidence:
+        checks.append((False,
+            "⚠️ Astra only pulled a small number of keywords from this JD. "
+            "The keyword score may not reflect real coverage — review the "
+            "missing list manually before sending."))
+    elif keywords_score >= 80 and not missing_keywords:
+        checks.append((True,
+            "All top JD keywords are present in the resume."))
+    elif keywords_score >= 75:
+        miss_preview = ", ".join(missing_keywords[:3])
+        more = f" and {len(missing_keywords)-3} more" if len(missing_keywords) > 3 else ""
+        checks.append((True,
+            f"Most JD keywords are covered. Still missing: {miss_preview}{more}."))
+    else:
+        miss_preview = ", ".join(missing_keywords[:5])
+        checks.append((False,
+            f"Several JD keywords are missing: {miss_preview}. "
+            f"Add these to Skills or weave into a bullet where Supraja has the work."))
 
-    checks.append((
-        readability_score >= 80,
-        f"Readability: {readability_score}/100 (no AI tells, varied bullets)",
-    ))
+    # ─── Readability + burstiness (plain English per UX fix) ───
+    if readability_score >= 85 and burstiness["passes_burstiness"]:
+        checks.append((True,
+            "The writing sounds human — no AI-tell phrases, and bullets vary "
+            "naturally in length and openers."))
+    elif readability_score >= 85:
+        # Readability passes but burstiness failed — explain what that means
+        if burstiness["max_repeat_count"] > 2:
+            checks.append((False,
+                f"⚠️ Bullets feel a bit uniform — the word \"{burstiness['max_repeat_verb'].capitalize()}\" "
+                f"starts {burstiness['max_repeat_count']} bullets. Reword two of them "
+                f"to use different verbs (e.g. Architected, Migrated, Tuned)."))
+        else:
+            checks.append((False,
+                "⚠️ Bullets sound too uniform — some sentences are very similar "
+                "in length. Mix in a couple of shorter or longer bullets, or "
+                "click Re-generate to try again."))
+    elif burstiness["passes_burstiness"]:
+        # Burstiness passes but readability flagged AI words remain
+        checks.append((False,
+            "⚠️ A few AI-sounding phrases slipped through (Astra normally "
+            "catches these). Check the bullets for words like 'leverage', "
+            "'spearhead', 'robust' and reword them."))
+    else:
+        # Both failed
+        checks.append((False,
+            "⚠️ Writing reads as AI-generated — uniform bullet structure and "
+            "some flagged phrases. Re-generate with the Keep-my-voice preset "
+            "or edit the longest bullets to vary phrasing."))
 
-    checks.append((
-        burstiness["passes_burstiness"],
-        f"Burstiness: stdev={burstiness['sentence_stdev']:.1f} (target ≥4.0), " +
-        f"top lead-verb \"{burstiness['max_repeat_verb']}\" × {burstiness['max_repeat_count']} (target ≤2)",
-    ))
-
+    # ─── Grounding ───
     grounding_pass = len(grounding_warnings) == 0
     if grounding_pass:
-        checks.append((True, "All metrics trace to base resume (interview-defensible)"))
+        checks.append((True,
+            "Every number in the resume traces back to your real experience "
+            "— interview-defensible."))
     else:
         warn_count = sum(len(v) for v in grounding_warnings.values())
-        checks.append((
-            False,
-            f"{warn_count} bullet(s) flagged: numbers not in base resume — review before sending",
-        ))
+        checks.append((False,
+            f"⚠️ {warn_count} bullet(s) use numbers not found in Supraja's base "
+            f"resume. Review the Grounding Warnings below before sending — "
+            f"she'll have to defend these in an interview."))
 
     return checks
 
@@ -1752,7 +1863,7 @@ def assemble_resume(model_output: dict, preset: str) -> dict:
     # ─── Deterministic multi-axis scoring ───
     burstiness = burstiness_audit(experience)
     impact_score, impact_label = compute_impact_axis(experience)
-    kw_score, kw_label, missing_kws = compute_keywords_axis(
+    kw_score, kw_label, missing_kws, kw_low_confidence = compute_keywords_axis(
         skills, summary, experience, jd_intel.get("top_keywords", [])
     )
     read_score, read_label = compute_readability_axis(summary, experience, burstiness)
@@ -1766,6 +1877,7 @@ def assemble_resume(model_output: dict, preset: str) -> dict:
     ready = generate_ready_checklist(
         overall, impact_score, kw_score, read_score,
         missing_kws, grounding, burstiness,
+        kw_low_confidence=kw_low_confidence,
     )
 
     return {
@@ -1783,7 +1895,10 @@ def assemble_resume(model_output: dict, preset: str) -> dict:
         "tailoring_notes": tailoring_notes,
         "scores": {
             "impact": {"score": impact_score, "label": impact_label},
-            "keywords": {"score": kw_score, "label": kw_label, "missing": missing_kws},
+            "keywords": {
+                "score": kw_score, "label": kw_label,
+                "missing": missing_kws, "low_confidence": kw_low_confidence,
+            },
             "readability": {"score": read_score, "label": read_label},
             "experience": {"score": exp_score, "label": exp_label},
             "overall": overall,
@@ -2423,7 +2538,7 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 # Recompute scoring with edited content
                 burst = burstiness_audit(data["experience"])
                 imp_s, imp_l = compute_impact_axis(data["experience"])
-                kw_s, kw_l, kw_miss = compute_keywords_axis(
+                kw_s, kw_l, kw_miss, kw_lowc = compute_keywords_axis(
                     data["skills"], data["summary"], data["experience"],
                     data["jd_intelligence"].get("top_keywords", []),
                 )
@@ -2432,7 +2547,10 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 overall_new = compute_overall_match(imp_s, kw_s, rd_s, ex_s)
                 data["scores"] = {
                     "impact": {"score": imp_s, "label": imp_l},
-                    "keywords": {"score": kw_s, "label": kw_l, "missing": kw_miss},
+                    "keywords": {
+                        "score": kw_s, "label": kw_l,
+                        "missing": kw_miss, "low_confidence": kw_lowc,
+                    },
                     "readability": {"score": rd_s, "label": rd_l},
                     "experience": {"score": ex_s, "label": ex_l},
                     "overall": overall_new,
@@ -2442,6 +2560,7 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 data["ready_checklist"] = generate_ready_checklist(
                     overall_new, imp_s, kw_s, rd_s, kw_miss,
                     data["grounding_warnings"], burst,
+                    kw_low_confidence=kw_lowc,
                 )
                 st.session_state["tailored"] = data
                 st.success("Saved and re-scored.")
