@@ -3579,7 +3579,9 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
     with tab_export:
         company = data["target_company"] or "Company"
         company_safe = re.sub(r"[^A-Za-z0-9_-]", "_", company.strip()) or "Company"
-        filename_base = f"Lakshmi_Supraja_Konakanchi_{company_safe}"
+        # Per client request: filename is `lakshmi_<company>_resume` (lowercase
+        # company, simpler than the full legal name).
+        filename_base = f"lakshmi_{company_safe.lower()}_resume"
 
         st.text_input("Filename (no extension)", filename_base, key="fname")
         fname = st.session_state.get("fname", filename_base)
@@ -3653,7 +3655,7 @@ elif st.session_state["step"] == 3 and st.session_state["tailored"]:
                 st.download_button(
                     "📄 Download Cover Letter (.docx)",
                     data=cl_bytes,
-                    file_name=f"CoverLetter_Lakshmi_Supraja_{company_safe}.docx",
+                    file_name=f"lakshmi_{company_safe.lower()}_cover_letter.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary",
                 )
